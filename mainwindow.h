@@ -34,6 +34,11 @@ namespace Ui {
 class MainWindow;
 }
 QT_END_NAMESPACE
+struct Condition {
+    QString column;
+    QString op;
+    QString value;
+};
 struct TableTab
 {
     QTableView *table;
@@ -108,6 +113,8 @@ private slots:
     void on_filter_clicked();
     void onCustomContextMenu(const QPoint &pos);
     void setPage(QueryTab &tab, const QString primarykey);
+
+    void on_pushButton_clear_clicked();
 
 protected:
 

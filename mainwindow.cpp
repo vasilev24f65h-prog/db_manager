@@ -1100,18 +1100,80 @@ void MainWindow::on_filter_clicked()
     QSqlDatabase db = currentDatabase();
     currentView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     currentView->setSelectionBehavior(QAbstractItemView::SelectItems);
+    QSqlRecord pk = db.primaryIndex(currentTableName);
+    QStringList pkFields;
+    for (int i = 0; i < pk.count(); ++i)
+        pkFields << pk.fieldName(i);
+    QString primarykey = pkFields.join(", ");
     if(action == "Filter")
     {
         if(condition.isEmpty())
         {
-            QString sql = QString("SELECT * FROM %1;").arg(currentTableName);
-            m_highlightDelegate->setSearchText("");
-            currentModel->setQuery(sql, db);
-            currentView->update();
+            return;
         }
-        QString sql = QString("SELECT * FROM %1 WHERE %2").arg(currentTableName, condition);
+        static const QRegularExpression re(R"(^\s*([\w_]+)\s*(=|!=|<>|>=|<=|>|<|like)\s*(.+)\s*$)",
+                              QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression logicRe(R"(\s+(AND|OR)\s+)", QRegularExpression::CaseInsensitiveOption);
+        QStringList parts = condition.split(logicRe, Qt::SkipEmptyParts);
+        QRegularExpressionMatchIterator it = logicRe.globalMatch(condition);
+        int i = 0;
+        QList<Condition> conditions;
+        QString where;
+        QRegularExpressionMatch match = re.match(condition.trimmed());
+        QStringList logicOps;
+        QStringList partsVal;
+        while (it.hasNext())
+        {
+            QRegularExpressionMatch match = it.next();
+            logicOps << match.captured(1).toUpper();
+        }
+        for (const QString &part : std::as_const(parts))
+        {
+            QRegularExpressionMatch match = re.match(part.trimmed());
+
+            if (!match.hasMatch())
+                continue;
+
+            Condition c;
+            c.column = match.captured(1);
+            c.op = match.captured(2).toUpper();
+            c.value = match.captured(3).trimmed();
+
+            conditions << c;
+
+            QString cond;
+
+
+            cond = QString("%1 %2 :val%3").arg(c.column, c.op).arg(i);
+
+
+            partsVal << cond;
+            i++;
+        }
+        if (!conditions.isEmpty())
+        {
+            where = partsVal[0];
+            for (int i = 1; i < conditions.size(); ++i)
+            {
+                QString op = logicOps.value(i-1); // по умолчанию AND
+                where += " " + op + " " + partsVal[i];
+            }
+        }
+        QString sql = QString("SELECT * FROM %1 WHERE %2").arg(currentTableName, where);
+        QSqlQuery query(db);
+        query.prepare(sql);
+        for (int i = 0; i < conditions.size(); ++i)
+        {
+            QString val = conditions[i].value;
+            if (conditions[i].op == "LIKE")
+                val = "%" + val + "%";
+
+            query.bindValue(":val" + QString::number(i), val);
+        }
+
+        query.exec();
         m_highlightDelegate->setSearchText("");
-        currentModel->setQuery(sql, db);
+        currentModel->setQuery(query);
         currentView->update();
 
 
@@ -1178,3 +1240,33 @@ void MainWindow::on_filter_clicked()
     }
 
 }
+
+void MainWindow::on_pushButton_clear_clicked()
+{
+    int currentIndex = ui->tabWidget->currentIndex();
+    QWidget *widget = ui->tabWidget->widget(currentIndex);
+    QueryTab *tab =getCurrentQueryTab(widget);
+
+    if(!tab)
+    {
+        QMessageBox::warning(this, "Ошибка", "Отсутсвует табличное представление.");
+        return;
+    }
+    QTableView *currentView =tab->table;
+    QSqlQueryModel* currentModel = tab->model;
+    QString currentTableName = tab->table_name;
+
+    if (!currentView || !currentModel) {
+        QMessageBox::warning(this, "Ошибка", "Отсутствует таблица или модель.");
+        return;
+    }
+    QSqlDatabase db = currentDatabase();
+    QSqlRecord pk = db.primaryIndex(currentTableName);
+    QStringList pkFields;
+    for (int i = 0; i < pk.count(); ++i)
+        pkFields << pk.fieldName(i);
+    QString primarykey = pkFields.join(", ");
+    setPage(*tab, primarykey);
+
+}
+
