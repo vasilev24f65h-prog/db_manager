@@ -1113,7 +1113,7 @@ void MainWindow::on_filter_clicked()
         }
         static const QRegularExpression re(R"(^\s*([\w_]+)\s*(=|!=|<>|>=|<=|>|<|like)\s*(.+)\s*$)",
                               QRegularExpression::CaseInsensitiveOption);
-        static const QRegularExpression logicRe(R"(\s+(AND|OR)\s+)", QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression logicRe(R"(\s+(AND|OR|IN)\s+)", QRegularExpression::CaseInsensitiveOption);
         QStringList parts = condition.split(logicRe, Qt::SkipEmptyParts);
         QRegularExpressionMatchIterator it = logicRe.globalMatch(condition);
         int i = 0;
@@ -1142,11 +1142,7 @@ void MainWindow::on_filter_clicked()
             conditions << c;
 
             QString cond;
-
-
             cond = QString("%1 %2 :val%3").arg(c.column, c.op).arg(i);
-
-
             partsVal << cond;
             i++;
         }
@@ -1155,7 +1151,7 @@ void MainWindow::on_filter_clicked()
             where = partsVal[0];
             for (int i = 1; i < conditions.size(); ++i)
             {
-                QString op = logicOps.value(i-1); // по умолчанию AND
+                QString op = logicOps.value(i-1);
                 where += " " + op + " " + partsVal[i];
             }
         }
@@ -1175,8 +1171,6 @@ void MainWindow::on_filter_clicked()
         m_highlightDelegate->setSearchText("");
         currentModel->setQuery(query);
         currentView->update();
-
-
     }
     else if(action == "Search")
     {
