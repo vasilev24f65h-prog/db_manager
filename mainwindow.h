@@ -86,7 +86,7 @@ public:
     TableTab* findTab(const QString &tableName, const QString &connName);
     QueryTab* findQueryTab(const QString &tableName, const QString &connName);
     int disconnect_db();
-    QString buildSearchCondition(QSqlQueryModel *model, const QString &searchText);
+    QString buildSearchCondition(QSqlQueryModel *model, QString &searchText);
     TableTab *getCurrentTableTab(QWidget *widget);
     QueryTab *getCurrentQueryTab(QWidget *widget);
 
