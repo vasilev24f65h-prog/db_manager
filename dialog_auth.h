@@ -1,3 +1,4 @@
+
 #ifndef DIALOG_AUTH_H
 #define DIALOG_AUTH_H
 
@@ -34,3 +35,6 @@ private:
 };
 
 #endif // DIALOG_AUTH_H
+
+
+

@@ -42,3 +42,4 @@
 #Qt meta object
 moc_*.cpp
 moc_*.h
+
