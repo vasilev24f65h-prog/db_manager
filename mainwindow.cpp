@@ -1023,48 +1023,68 @@ void MainWindow::on_insert_clicked()
     }
 }
 
-QString MainWindow::buildSearchCondition(QSqlQueryModel *model, const QString &searchText)
+QString MainWindow::buildSearchCondition(QSqlQueryModel *model, QString &searchText)
 {
     QStringList conditions;
     QSqlRecord record = model->record();
 
     // Экранируем спецсимволы для SQL LIKE
-    QString escapedText = searchText;
-    escapedText.replace("'", "''");  // Экранируем одинарные кавычки
-    escapedText.replace("%", "\\%");
-    escapedText.replace("_", "\\_");
+/*
+QSqlQuery query(db);
 
-    // Для каждой колонки добавляем условие LIKE
+QString queryStr;
+
+if (useFullText) {
+    queryStr = "SELECT * FROM Products WHERE CONTAINS(Product_name, :val)";
+    query.prepare(queryStr);
+
+    // FULLTEXT требует особый синтаксис
+    query.bindValue(":val", "\"" + condition + "\"");
+} else {
+    queryStr = "SELECT * FROM Products WHERE Product_name LIKE :val";
+    query.prepare(queryStr);
+
+    query.bindValue(":val", "%" + condition + "%");
+}
+
+if (!query.exec()) {
+    qDebug() << query.lastError();
+} Можно добавить более оптимзированный и гибкий вариант
+или можно делать так
+query.prepare(
+    "SELECT * FROM Products WHERE "
+    "CONTAINS(Product_name, :fulltext) "
+    "OR Product_name LIKE :like"
+);
+
+query.bindValue(":fulltext", "\"" + condition + "*\"");
+query.bindValue(":like", "%" + condition + "%");
+*/
+    searchText.replace("'", "''");
+    searchText.replace("%", "\\%");
+    searchText.replace("_", "\\_");
+
     for (int i = 0; i < record.count(); ++i) {
         QString fieldName = record.fieldName(i);
         QSqlField field = record.field(i);
-
-        // Пропускаем BLOB поля
-        if (field.type() == QVariant::ByteArray) {
-            continue;
-        }
-
-        // Пропускаем автоинкремент
-        if (field.isAutoValue()) {
-            continue;
-        }
-
-        // Добавляем условие для текстовых и числовых полей
         QVariant::Type fieldType = field.type();
-        if (fieldType == QVariant::String ||
-            fieldType == QVariant::ByteArray ||
-            fieldType == QVariant::LongLong ||
-            fieldType == QVariant::Int ||
-            fieldType == QVariant::Double) {
 
-            conditions.append(QString("%1 LIKE '%%2%' ESCAPE '\\'")
-                                  .arg(fieldName, escapedText));
+        if (fieldType == QVariant::ByteArray || field.isAutoValue())
+            continue;
+
+        // Для строковых полей используем LIKE
+        if (fieldType == QVariant::String) {
+            conditions.append(QString("%1 LIKE :val ESCAPE '\\'")
+                                  .arg(fieldName));
+        }
+        else if (fieldType == QVariant::Int || fieldType == QVariant::LongLong || fieldType == QVariant::Double) {
+            conditions.append(QString("%1 = :val ")
+                                  .arg(fieldName));
         }
     }
 
-    if (conditions.isEmpty()) {
+    if (conditions.isEmpty())
         return "";
-    }
 
     return conditions.join(" OR ");
 }
@@ -1114,7 +1134,7 @@ void MainWindow::on_filter_clicked()
         }
         static const QRegularExpression re(R"(^\s*([\w_]+)\s*(=|!=|<>|>=|<=|>|<|like)\s*(.+)\s*$)",
                               QRegularExpression::CaseInsensitiveOption);
-        static const QRegularExpression logicRe(R"(\s+(AND|OR|IN)\s+)", QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression logicRe(R"(\s+(AND|OR)\s+)", QRegularExpression::CaseInsensitiveOption);
         QStringList parts = condition.split(logicRe, Qt::SkipEmptyParts);
         QRegularExpressionMatchIterator it = logicRe.globalMatch(condition);
         int i = 0;
@@ -1175,19 +1195,24 @@ void MainWindow::on_filter_clicked()
     }
     else if(action == "Search")
     {
-        /*
-        // Преобразуем поиск в SQL LIKE запрос
+
         if (condition.isEmpty()) {
-            currentModel->setFilter(condition);
-            currentModel->select();
             m_highlightDelegate->setSearchText("");
-            currentView->update();
+            return;
         } else {
             QString filterCondition = buildSearchCondition(tab->model, condition);
             if (!filterCondition.isEmpty()) {
-                currentModel->setFilter(filterCondition);
-                currentModel->select();
-                // Устанавливаем подсветку
+                QString querystr = QString("SELECT * FROM %1 WHERE %2").arg(currentTableName,filterCondition);
+                qDebug() << "Executing SQL:" << querystr;
+                QSqlQuery query(db);
+                query.prepare(querystr);
+                query.bindValue(":val", condition + "%");
+                if (!query.exec()) {
+                    qDebug() << query.lastError();
+                }
+                qDebug() << query.lastQuery();
+                currentModel->setQuery(query);
+                currentView->update();
                 m_highlightDelegate->setSearchText(condition);
                 currentView->setItemDelegate(m_highlightDelegate);
                 currentView->viewport()->update();
@@ -1209,7 +1234,7 @@ void MainWindow::on_filter_clicked()
             int rowsAffected = query.numRowsAffected();
             QMessageBox::information(this, "Успех",
                                      QString("Обновлено строк: %1").arg(rowsAffected));
-            tab->model->select();
+            //tab->model->select();
         } else {
             QMessageBox::warning(this, "Ошибка",
                                  "Не удалось обновить: " + query.lastError().text());
@@ -1226,12 +1251,12 @@ void MainWindow::on_filter_clicked()
             int rowsAffected = query.numRowsAffected();
             QMessageBox::information(this, "Успех",
                                      QString("Обновлено строк: %1").arg(rowsAffected));
-            tab->model->select();
+           // tab->model->select();
         } else {
             QMessageBox::warning(this, "Ошибка",
                                  "Не удалось обновить: " + query.lastError().text());
 
-    }*/
+    }
     }
 
 }
