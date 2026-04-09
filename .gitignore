@@ -39,3 +39,6 @@
 
 # debug information files
 *.dwo
+#Qt meta object
+moc_*.cpp
+moc_*.h
