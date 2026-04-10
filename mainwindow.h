@@ -47,6 +47,11 @@ struct TableTab
     QString table_name;
     QString conn_name;
 };
+struct Placeholders{
+    QString ph;
+    bool isNumeric;
+};
+
 struct QueryTab
 {
     QWidget *pageWjd;
@@ -86,7 +91,7 @@ public:
     TableTab* findTab(const QString &tableName, const QString &connName);
     QueryTab* findQueryTab(const QString &tableName, const QString &connName);
     int disconnect_db();
-    QString buildSearchCondition(QSqlQueryModel *model, QString &searchText);
+    QString buildSearchCondition(QSqlQueryModel *model, QString &searchText, QList<Placeholders> &placeholders);
     TableTab *getCurrentTableTab(QWidget *widget);
     QueryTab *getCurrentQueryTab(QWidget *widget);
 

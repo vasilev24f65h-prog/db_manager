@@ -1023,43 +1023,13 @@ void MainWindow::on_insert_clicked()
     }
 }
 
-QString MainWindow::buildSearchCondition(QSqlQueryModel *model, QString &searchText)
+QString MainWindow::buildSearchCondition(QSqlQueryModel *model, QString &searchText, QList<Placeholders> &placeholders)
 {
     QStringList conditions;
     QSqlRecord record = model->record();
-
-    // Экранируем спецсимволы для SQL LIKE
-/*
-QSqlQuery query(db);
-
-QString queryStr;
-
-if (useFullText) {
-    queryStr = "SELECT * FROM Products WHERE CONTAINS(Product_name, :val)";
-    query.prepare(queryStr);
-
-    // FULLTEXT требует особый синтаксис
-    query.bindValue(":val", "\"" + condition + "\"");
-} else {
-    queryStr = "SELECT * FROM Products WHERE Product_name LIKE :val";
-    query.prepare(queryStr);
-
-    query.bindValue(":val", "%" + condition + "%");
-}
-
-if (!query.exec()) {
-    qDebug() << query.lastError();
-} Можно добавить более оптимзированный и гибкий вариант
-или можно делать так
-query.prepare(
-    "SELECT * FROM Products WHERE "
-    "CONTAINS(Product_name, :fulltext) "
-    "OR Product_name LIKE :like"
-);
-
-query.bindValue(":fulltext", "\"" + condition + "*\"");
-query.bindValue(":like", "%" + condition + "%");
-*/
+    int index  = 0;
+    static bool ok;
+    int intValue = searchText.toInt(&ok);
     searchText.replace("'", "''");
     searchText.replace("%", "\\%");
     searchText.replace("_", "\\_");
@@ -1072,15 +1042,20 @@ query.bindValue(":like", "%" + condition + "%");
         if (fieldType == QVariant::ByteArray || field.isAutoValue())
             continue;
 
+        QString placeholder = QString(":val%1").arg(index++);
+
         // Для строковых полей используем LIKE
         if (fieldType == QVariant::String) {
-            conditions.append(QString("%1 LIKE :val ESCAPE '\\'")
-                                  .arg(fieldName));
+            conditions.append(QString("CONTAINS(%1 , %2) OR %1 LIKE %3 ESCAPE '\\'")
+                                  .arg(fieldName, placeholder+"full", placeholder));
+            placeholders.append({placeholder, false});
         }
-        else if (fieldType == QVariant::Int || fieldType == QVariant::LongLong || fieldType == QVariant::Double) {
-            conditions.append(QString("%1 = :val ")
-                                  .arg(fieldName));
+        else if ((fieldType == QVariant::Int || fieldType == QVariant::LongLong || fieldType == QVariant::Double) && ok) {
+            conditions.append(QString("%1 = %2 ")
+                                  .arg(fieldName, placeholder));
+            placeholders.append({placeholder, true});
         }
+
     }
 
     if (conditions.isEmpty())
@@ -1200,13 +1175,25 @@ void MainWindow::on_filter_clicked()
             m_highlightDelegate->setSearchText("");
             return;
         } else {
-            QString filterCondition = buildSearchCondition(tab->model, condition);
+            QList<Placeholders> placeholders;
+            QString filterCondition = buildSearchCondition(tab->model, condition, placeholders);
             if (!filterCondition.isEmpty()) {
                 QString querystr = QString("SELECT * FROM %1 WHERE %2").arg(currentTableName,filterCondition);
                 qDebug() << "Executing SQL:" << querystr;
                 QSqlQuery query(db);
                 query.prepare(querystr);
-                query.bindValue(":val", condition + "%");
+                for (const Placeholders &ph : std::as_const(placeholders)) {
+                    if(ph.isNumeric)
+                    {
+                        query.bindValue(ph.ph, condition);
+                    }
+                    else
+                    {
+                        query.bindValue(ph.ph+"full","\"" + condition + "*\"");
+                        query.bindValue(ph.ph, "%" + condition + "%");
+                    }
+
+                }
                 if (!query.exec()) {
                     qDebug() << query.lastError();
                 }
@@ -1224,11 +1211,72 @@ void MainWindow::on_filter_clicked()
             }
     }
     }
+    //здесь необходимо нормально парсить строку, условие обновления после ключевого слова where, до него устанавливаемые значения.
     else if(action == "Update")
     {
-        QSqlDatabase db = QSqlDatabase::database(currentConnName);
-        QString queryStr = QString("UPDATE %1 SET %2 ")
-                               .arg(currentTableName, condition);
+        if(condition.isEmpty())
+        {
+            return;
+        }
+        static const QRegularExpression re(R"(^\s*([\w_]+)\s*(=)\s*(.+)\s*$)",
+                                           QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression logicRe(R"(\s+(WHERE)\s+)", QRegularExpression::CaseInsensitiveOption);
+        QStringList parts = condition.split(logicRe, Qt::SkipEmptyParts);
+        QRegularExpressionMatchIterator it = logicRe.globalMatch(condition);
+        int i = 0;
+        QList<Condition> conditions;
+        QString where;
+        QRegularExpressionMatch match = re.match(condition.trimmed());
+        QStringList logicOps;
+        QStringList partsVal;
+        while (it.hasNext())
+        {
+            QRegularExpressionMatch match = it.next();
+            logicOps << match.captured(1).toUpper();
+        }
+        for (const QString &part : std::as_const(parts))
+        {
+            QRegularExpressionMatch match = re.match(part.trimmed());
+
+            if (!match.hasMatch())
+                continue;
+
+            Condition c;
+            c.column = match.captured(1);
+            c.op = match.captured(2).toUpper();
+            c.value = match.captured(3).trimmed();
+
+            conditions << c;
+
+            QString cond;
+            cond = QString("%1 %2 :val%3").arg(c.column, c.op).arg(i);
+            partsVal << cond;
+            i++;
+        }
+        if (!conditions.isEmpty())
+        {
+            where = partsVal[0];
+            for (int i = 1; i < conditions.size(); ++i)
+            {
+                QString op = logicOps.value(i-1);
+                where += " " + op + " " + partsVal[i];
+            }
+        }
+        QString sql = QString("UPDATE %1 SET %2 WHERE %2").arg(currentTableName, condition,  where);
+        QSqlQuery query(db);
+        query.prepare(sql);
+        for (int i = 0; i < conditions.size(); ++i)
+        {
+            QString val = conditions[i].value;
+
+            query.bindValue(":val" + QString::number(i), val);
+        }
+
+        query.exec();
+        m_highlightDelegate->setSearchText("");
+        currentModel->setQuery(query);
+        currentView->update();
+        /*
         QSqlQuery query(db);
         if (query.exec(queryStr)) {
             int rowsAffected = query.numRowsAffected();
@@ -1239,6 +1287,7 @@ void MainWindow::on_filter_clicked()
             QMessageBox::warning(this, "Ошибка",
                                  "Не удалось обновить: " + query.lastError().text());
         }
+*/
     }
     else if(action == "Delete")
     {
@@ -1287,6 +1336,12 @@ void MainWindow::on_pushButton_clear_clicked()
         pkFields << pk.fieldName(i);
     QString primarykey = pkFields.join(", ");
     setPage(*tab, primarykey);
+    ui->lineEdit_action->clear();
+    m_highlightDelegate->setSearchText("");
 
 }
 
+// ту ду, че еще надо сделать
+//Соответсвенно обновление/удаление(нормальные!), работа с функциями, индексами, процедурами, ввод/вывод данных в виде форм, импорт в один из форматов, писалка sql запросов,
+//метрики производительности, например нагрузка на сервер и т.д., планировщик запросов и его вывод, обработку ошибок, расширить работу с таблицами, реализовать простой интерфейс для работы
+//с ролями
