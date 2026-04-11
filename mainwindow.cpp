@@ -1199,7 +1199,6 @@ void MainWindow::on_filter_clicked()
                 }
                 qDebug() << query.lastQuery();
                 currentModel->setQuery(query);
-                currentView->update();
                 m_highlightDelegate->setSearchText(condition);
                 currentView->setItemDelegate(m_highlightDelegate);
                 currentView->viewport()->update();
@@ -1211,7 +1210,7 @@ void MainWindow::on_filter_clicked()
             }
     }
     }
-    //здесь необходимо нормально парсить строку, условие обновления после ключевого слова where, до него устанавливаемые значения.
+    //добавить and для условия, все остальное пока пойдет
     else if(action == "Update")
     {
         if(condition.isEmpty())
@@ -1220,19 +1219,25 @@ void MainWindow::on_filter_clicked()
         }
         static const QRegularExpression re(R"(^\s*([\w_]+)\s*(=)\s*(.+)\s*$)",
                                            QRegularExpression::CaseInsensitiveOption);
-        static const QRegularExpression logicRe(R"(\s+(WHERE)\s+)", QRegularExpression::CaseInsensitiveOption);
-        QStringList parts = condition.split(logicRe, Qt::SkipEmptyParts);
+        static const QRegularExpression logicRe("\\s*,\\s*");
+        static const QRegularExpression whereRe("\\bWHERE\\b\\s+(.*)", QRegularExpression::CaseInsensitiveOption);
+        QRegularExpressionMatch matchWhere = whereRe.match(condition.trimmed());
+        QStringList full = condition.split(logicRe, Qt::SkipEmptyParts);
+        QString whereCond = matchWhere.captured(0);
+        QString where = matchWhere.captured(1);
+        QString value;
+        full.back().remove(whereCond);
+        QStringList parts = full;
         QRegularExpressionMatchIterator it = logicRe.globalMatch(condition);
         int i = 0;
         QList<Condition> conditions;
-        QString where;
-        QRegularExpressionMatch match = re.match(condition.trimmed());
-        QStringList logicOps;
         QStringList partsVal;
-        while (it.hasNext())
-        {
-            QRegularExpressionMatch match = it.next();
-            logicOps << match.captured(1).toUpper();
+        QString whereVal;
+        QSqlRecord rec = db.record(currentTableName);
+        QSet<QString> allowedOps = {"=", "<", ">", "<=", ">=", "LIKE"};
+        QSet<QString> allowedColumns;
+        for (int i = 0; i < rec.count(); ++i) {
+            allowedColumns.insert(rec.fieldName(i));
         }
         for (const QString &part : std::as_const(parts))
         {
@@ -1245,7 +1250,12 @@ void MainWindow::on_filter_clicked()
             c.column = match.captured(1);
             c.op = match.captured(2).toUpper();
             c.value = match.captured(3).trimmed();
-
+            if (!allowedColumns.contains(c.column)) {
+                return;
+            }
+            if (!allowedOps.contains(c.op)) {
+                return;
+            }
             conditions << c;
 
             QString cond;
@@ -1253,16 +1263,34 @@ void MainWindow::on_filter_clicked()
             partsVal << cond;
             i++;
         }
+
+            QRegularExpressionMatch match = re.match(where.trimmed());
+            if (!match.hasMatch())
+                return;
+            Condition c;
+            c.column = match.captured(1);
+            c.op = match.captured(2).toUpper();
+            c.value = match.captured(3).trimmed();
+            if (!allowedColumns.contains(c.column)) {
+                return;
+            }
+            if (!allowedOps.contains(c.op)) {
+                return;
+            }
+            conditions << c;
+
+
+            whereVal = QString("%1 %2 :where").arg(c.column, c.op);
+
         if (!conditions.isEmpty())
         {
-            where = partsVal[0];
-            for (int i = 1; i < conditions.size(); ++i)
+            value = partsVal[0];
+            for (int i = 1; i < conditions.size()-1; ++i)
             {
-                QString op = logicOps.value(i-1);
-                where += " " + op + " " + partsVal[i];
+                value += " , " + partsVal[i];
             }
         }
-        QString sql = QString("UPDATE %1 SET %2 WHERE %2").arg(currentTableName, condition,  where);
+        QString sql = QString("UPDATE %1 SET %2 WHERE %3").arg(currentTableName, value,whereVal);
         QSqlQuery query(db);
         query.prepare(sql);
         for (int i = 0; i < conditions.size(); ++i)
@@ -1270,12 +1298,18 @@ void MainWindow::on_filter_clicked()
             QString val = conditions[i].value;
 
             query.bindValue(":val" + QString::number(i), val);
+            if(i == conditions.size()-1)
+            {
+                query.bindValue(":where", val);
+            }
         }
 
         query.exec();
         m_highlightDelegate->setSearchText("");
+        currentView->setItemDelegate(m_highlightDelegate);
         currentModel->setQuery(query);
-        currentView->update();
+        setPage(*tab, primarykey);
+        currentView->viewport()->update();
         /*
         QSqlQuery query(db);
         if (query.exec(queryStr)) {
