@@ -1221,73 +1221,49 @@ void MainWindow::on_filter_clicked()
                                            QRegularExpression::CaseInsensitiveOption);
         static const QRegularExpression logicRe("\\s*,\\s*");
         static const QRegularExpression whereRe("\\bWHERE\\b\\s+(.*)", QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression andRe(R"(\s+(AND)\s+)", QRegularExpression::CaseInsensitiveOption);
         QRegularExpressionMatch matchWhere = whereRe.match(condition.trimmed());
         QStringList full = condition.split(logicRe, Qt::SkipEmptyParts);
         QString whereCond = matchWhere.captured(0);
         QString where = matchWhere.captured(1);
-        QString value;
         full.back().remove(whereCond);
-        QStringList parts = full;
-        QRegularExpressionMatchIterator it = logicRe.globalMatch(condition);
-        int i = 0;
-        QList<Condition> conditions;
-        QStringList partsVal;
+        QStringList whereParts = where.split(andRe,Qt::SkipEmptyParts);
+        QString value;
         QString whereVal;
+        QStringList parts = full;
+
+        whereCond.clear();
+        where.clear();
+        full.clear();
+
+        QRegularExpressionMatchIterator it = logicRe.globalMatch(condition);
+        QList<Condition> conditions;
+        QList<Condition> conditionsWhere;
+        QStringList partsVal;
+
         QSqlRecord rec = db.record(currentTableName);
         QSet<QString> allowedOps = {"=", "<", ">", "<=", ">=", "LIKE"};
         QSet<QString> allowedColumns;
         for (int i = 0; i < rec.count(); ++i) {
             allowedColumns.insert(rec.fieldName(i));
         }
-        for (const QString &part : std::as_const(parts))
-        {
-            QRegularExpressionMatch match = re.match(part.trimmed());
-
-            if (!match.hasMatch())
-                continue;
-
-            Condition c;
-            c.column = match.captured(1);
-            c.op = match.captured(2).toUpper();
-            c.value = match.captured(3).trimmed();
-            if (!allowedColumns.contains(c.column)) {
-                return;
-            }
-            if (!allowedOps.contains(c.op)) {
-                return;
-            }
-            conditions << c;
-
-            QString cond;
-            cond = QString("%1 %2 :val%3").arg(c.column, c.op).arg(i);
-            partsVal << cond;
-            i++;
-        }
-
-            QRegularExpressionMatch match = re.match(where.trimmed());
-            if (!match.hasMatch())
-                return;
-            Condition c;
-            c.column = match.captured(1);
-            c.op = match.captured(2).toUpper();
-            c.value = match.captured(3).trimmed();
-            if (!allowedColumns.contains(c.column)) {
-                return;
-            }
-            if (!allowedOps.contains(c.op)) {
-                return;
-            }
-            conditions << c;
-
-
-            whereVal = QString("%1 %2 :where").arg(c.column, c.op);
-
+        preparedParts(parts,conditions,partsVal,re,allowedOps,allowedColumns, ":val");
         if (!conditions.isEmpty())
         {
             value = partsVal[0];
-            for (int i = 1; i < conditions.size()-1; ++i)
+            for (int i = 1; i < conditions.size(); ++i)
             {
                 value += " , " + partsVal[i];
+            }
+        }
+        partsVal.clear();
+        preparedParts(whereParts,conditionsWhere,partsVal,re,allowedOps,allowedColumns, ":where");
+        if (!conditionsWhere.isEmpty())
+        {
+            whereVal = partsVal[0];
+            for (int i = 1; i < conditionsWhere.size(); ++i)
+            {
+                whereVal += " AND " + partsVal[i];
             }
         }
         QString sql = QString("UPDATE %1 SET %2 WHERE %3").arg(currentTableName, value,whereVal);
@@ -1298,30 +1274,32 @@ void MainWindow::on_filter_clicked()
             QString val = conditions[i].value;
 
             query.bindValue(":val" + QString::number(i), val);
-            if(i == conditions.size()-1)
-            {
-                query.bindValue(":where", val);
-            }
+
+        }
+        for (int i = 0; i < conditionsWhere.size(); ++i)
+        {
+            QString val = conditionsWhere[i].value;
+
+            query.bindValue(":where" + QString::number(i), val);
+
         }
 
-        query.exec();
-        m_highlightDelegate->setSearchText("");
-        currentView->setItemDelegate(m_highlightDelegate);
-        currentModel->setQuery(query);
-        setPage(*tab, primarykey);
-        currentView->viewport()->update();
-        /*
-        QSqlQuery query(db);
-        if (query.exec(queryStr)) {
+        if(query.exec())
+        {
             int rowsAffected = query.numRowsAffected();
             QMessageBox::information(this, "Успех",
                                      QString("Обновлено строк: %1").arg(rowsAffected));
-            //tab->model->select();
-        } else {
+
+            currentModel->setQuery(query);
+            setPage(*tab, primarykey);
+            m_highlightDelegate->setSearchText(conditionsWhere[0].value);
+            currentView->setItemDelegate(m_highlightDelegate);
+        }
+        else {
             QMessageBox::warning(this, "Ошибка",
                                  "Не удалось обновить: " + query.lastError().text());
         }
-*/
+
     }
     else if(action == "Delete")
     {
@@ -1342,6 +1320,36 @@ void MainWindow::on_filter_clicked()
     }
     }
 
+}
+
+void MainWindow::preparedParts(const QStringList &parts, QList<Condition> &conditions, QStringList &partsVal, const QRegularExpression re,
+                               const QSet<QString> &allowedOps, const QSet<QString> allowedColumns, const QString &binding)
+{
+    int i = 0;
+    for (const QString &part : std::as_const(parts))
+    {
+        QRegularExpressionMatch match = re.match(part.trimmed());
+
+        if (!match.hasMatch())
+            continue;
+
+        Condition c;
+        c.column = match.captured(1);
+        c.op = match.captured(2).toUpper();
+        c.value = match.captured(3).trimmed();
+        if (!allowedColumns.contains(c.column)) {
+            return;
+        }
+        if (!allowedOps.contains(c.op)) {
+            return;
+        }
+        conditions << c;
+
+        QString cond;
+        cond = QString("%1 %2 "+binding+"%3").arg(c.column, c.op).arg(i);
+        partsVal << cond;
+        i++;
+    }
 }
 
 void MainWindow::on_pushButton_clear_clicked()
@@ -1376,6 +1384,6 @@ void MainWindow::on_pushButton_clear_clicked()
 }
 
 // ту ду, че еще надо сделать
-//Соответсвенно обновление/удаление(нормальные!), работа с функциями, индексами, процедурами, ввод/вывод данных в виде форм, импорт в один из форматов, писалка sql запросов,
+//Соответсвенно удаление(нормальное!), работа с функциями, индексами, процедурами, ввод/вывод данных в виде форм, импорт в один из форматов, писалка sql запросов,
 //метрики производительности, например нагрузка на сервер и т.д., планировщик запросов и его вывод, обработку ошибок, расширить работу с таблицами, реализовать простой интерфейс для работы
 //с ролями

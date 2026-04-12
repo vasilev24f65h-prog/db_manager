@@ -144,6 +144,8 @@ private:
     void showTriggers(QTreeWidgetItem *item);
     void showFunctions(QTreeWidgetItem *item);
     void showTable(QTreeWidgetItem *item);
+    void preparedParts(const QStringList &parts, QList<Condition> &conditions, QStringList &partsVal, const QRegularExpression re,
+                       const QSet<QString> &allowedOps, const QSet<QString> allowedColumns, const QString &binding);
 
 
 };
