@@ -3,7 +3,6 @@
 #include "qlabel.h"
 #include "qlineedit.h"
 #include "ui_mainwindow.h"
-#include <iostream>
 #include <set>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -41,10 +40,6 @@ MainWindow::MainWindow(QWidget *parent)
     ui->treeWidget->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(ui->treeWidget, &QTreeWidget::customContextMenuRequested,
             this, &MainWindow::onCustomContextMenu);
-    connect(this, &MainWindow::tableActivated,
-            this, [this](const QString &tableName){
-                add_table(tableName, activeDb);
-            });
     connect(this, &MainWindow::tableQueryActivated,
             this, [this](const QString &tableName){
                 add_query_table(tableName, activeDb);
@@ -98,14 +93,9 @@ void MainWindow::onCustomContextMenu(const QPoint &pos)
         menu.addSeparator();
 
         QAction *dropAction = menu.addAction("Drop table");
-        QAction *QueryModel = menu.addAction("Show table");
         connect(dropAction, &QAction::triggered, this, [this, item]() {
             dropTable(item);
         });
-        connect(QueryModel, &QAction::triggered, this, [this, item]() {
-            showTable(item);
-        });
-
         break;
     }
     default:
@@ -116,29 +106,10 @@ void MainWindow::onCustomContextMenu(const QPoint &pos)
     menu.exec(ui->treeWidget->viewport()->mapToGlobal(pos));
 }
 
-void MainWindow::showTable(QTreeWidgetItem *item)
-{
-    if (!item)
-        return;
-
-    QTreeWidgetItem *root = item;
-    while (root->parent())
-        root = root->parent();
-
-    setActive(root);
-
-    if (item->data(0, RoleType).toInt() == TableItem) {
-        emit tableQueryActivated(item->text(0));
-    }
-    if (item->data(0, RoleType).toInt() == ViewItem) {
-        emit tableActivated(item->text(0));
-    }
-}
-
 void MainWindow::add_query_table(const QString &tableName, const QString &connectionName)
 {
     if (QueryTab* existingTab = findQueryTab(tableName, connectionName)) {
-        int index = ui->tabWidget->indexOf(existingTab->table);
+        int index = ui->tabWidget->indexOf(existingTab->pageWjd);
         if (index != -1)
             ui->tabWidget->setCurrentIndex(index);
         return;
@@ -184,12 +155,21 @@ void MainWindow::add_query_table(const QString &tableName, const QString &connec
     QString querystr;
     QString primarykey = pkFields.join(", ");
     QSqlQueryModel *model = new QSqlQueryModel(this);
-    primarykey.isEmpty() ? querystr = "(SELECT NULL)" :
-                          querystr = QString("SELECT * FROM %1 ORDER BY %2 OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY").arg(tableName, primarykey);
+    if (primarykey.isEmpty()) {
+        querystr = QString("SELECT TOP 1000 * FROM %1").arg(tableName);
+    } else {
+        querystr = QString("SELECT * FROM %1 ORDER BY %2 OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY").arg(tableName, primarykey);
+    }
+
+
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     model->setQuery(querystr, database);
     if (model->lastError().isValid())
+    {
         qDebug() << "Query failed:" << model->lastError().text();
+        model->clear();
+        return;
+    }
     table->setModel(model);
     queryTabs.append({pageWidget,table,model,tableName,connectionName});
 
@@ -206,16 +186,19 @@ void MainWindow::add_query_table(const QString &tableName, const QString &connec
             tab->page--;
         setPage(*tab, primarykey);
     });
+    int index = ui->tabWidget->addTab(pageWidget, tableName);
+    ui->tabWidget->setCurrentIndex(index);
 
  }
 void MainWindow::setPage(QueryTab &tab, const QString primarykey)
 {
     QSqlDatabase database = QSqlDatabase::database(tab.conn_name);
     QString querystr;
-    primarykey.isEmpty() ? querystr = "(SELECT NULL)" :
-        querystr = QString(
-                         "SELECT * FROM %1 ORDER BY %2 OFFSET %3 ROWS FETCH NEXT 1000 ROWS ONLY"
-                         ).arg(tab.table_name, primarykey).arg(tab.page * 1000);
+    if (primarykey.isEmpty()) {
+        querystr = QString("SELECT TOP 1000 * FROM %1").arg(tab.table_name);
+    } else {
+        querystr = QString("SELECT * FROM %1 ORDER BY %2 OFFSET %3 ROWS FETCH NEXT 1000 ROWS ONLY").arg(tab.table_name, primarykey).arg(tab.page * 1000);
+    }
     tab.table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tab.model->setQuery(querystr, database);
     if (tab.model->lastError().isValid())
@@ -297,16 +280,6 @@ int MainWindow::disconnect_db()
     if (connectionName.isEmpty())
         return -1;
 
-    // Сначала закрываем все вкладки, использующие это соединение
-    for (int i = tableTabs.count() - 1; i >= 0; --i) {
-        if (tableTabs[i].conn_name == connectionName) {
-            ui->tabWidget->removeTab(ui->tabWidget->indexOf(tableTabs[i].table));
-            tableTabs[i].table->setModel(nullptr);
-            delete tableTabs[i].model;
-            delete tableTabs[i].table;
-            tableTabs.removeAt(i);
-        }
-    }
     for (int i = queryTabs.count() - 1; i >= 0; --i) {
         if (queryTabs[i].conn_name == connectionName) {
             ui->tabWidget->removeTab(ui->tabWidget->indexOf(queryTabs[i].pageWjd));
@@ -325,7 +298,6 @@ int MainWindow::disconnect_db()
 
     QSqlDatabase::removeDatabase(connectionName);
 
-    // Обновляем дерево
     refresh();
     return 1;
 }
@@ -335,11 +307,6 @@ void MainWindow::tab_close(int index)
                               "Закрыть вкладку?") == QMessageBox::Yes)
     {
         QWidget *widget = ui->tabWidget->widget(index);
-        auto it = std::remove_if(tableTabs.begin(), tableTabs.end(),
-                                 [widget](const TableTab &tab){ return tab.table == widget; });
-        if (it != tableTabs.end()) {
-            tableTabs.erase(it, tableTabs.end());
-        }
         auto it2 = std::remove_if(queryTabs.begin(), queryTabs.end(),
                                  [widget](const QueryTab &tab){ return tab.pageWjd == widget; });
         if (it2 != queryTabs.end()) {
@@ -356,16 +323,6 @@ void MainWindow::on_pushButton_addTab_clicked()
     ui->tabWidget->addTab(new QTextEdit(), "Текст");
 }
 
-TableTab* MainWindow::findTab(const QString &tableName, const QString &connName)
-{
-    for (auto &tab : tableTabs) {
-        if (tab.table_name == tableName && tab.conn_name == connName) {
-            return &tab;
-        }
-    }
-    return nullptr;
-}
-
 QueryTab* MainWindow::findQueryTab(const QString &tableName, const QString &connName)
 {
     for (auto &tab : queryTabs) {
@@ -374,26 +331,6 @@ QueryTab* MainWindow::findQueryTab(const QString &tableName, const QString &conn
         }
     }
     return nullptr;
-}
-
-void MainWindow::add_table(const QString &tableName, const QString &connectionName)
-{
-    if (TableTab* existingTab = findTab(tableName, connectionName)) {
-        int index = ui->tabWidget->indexOf(existingTab->table);
-        if (index != -1)
-            ui->tabWidget->setCurrentIndex(index);
-        return;
-    }
-
-    QTableView * table = new QTableView();
-    QSqlDatabase database = QSqlDatabase::database(connectionName);
-    QSqlTableModel *model = new QSqlTableModel(table, database);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    model->setTable(tableName);
-    model->select();
-    table->setModel(model);
-    ui->tabWidget->addTab(table, tableName);
-    tableTabs.append({table,model,tableName,connectionName});
 }
 
 static QString qDBCaption(const QSqlDatabase &db)
@@ -563,7 +500,7 @@ void MainWindow::refresh()
             for (const QString &viewsName : std::as_const(views)) {
                 QTreeWidgetItem *views = new QTreeWidgetItem(viewsNode);
                 views->setText(0, viewsName);
-                views->setData(0, RoleType, TableItem);
+                views->setData(0, RoleType, ViewItem);
             }
         }
     }
@@ -613,10 +550,10 @@ void MainWindow::on_tree_itemActivated(QTreeWidgetItem *item, int /* column */)
     setActive(root);
 
     if (item->data(0, RoleType).toInt() == TableItem) {
-        emit tableActivated(item->text(0));
+        emit tableQueryActivated(item->text(0));
     }
     if (item->data(0, RoleType).toInt() == ViewItem) {
-        emit tableActivated(item->text(0));
+        emit tableQueryActivated(item->text(0));
     }
 }
 
@@ -713,17 +650,6 @@ void MainWindow::showMetaData()
     ui->tabWidget->addTab(view, t + " (schema)");
 }
 
-TableTab * MainWindow::getCurrentTableTab(QWidget *widget)
-{
-    for(auto &t : tableTabs)
-    {
-        if(t.table==widget)
-        {
-            return &t;
-        }
-    }
-    return nullptr;
-}
 
 QueryTab * MainWindow::getCurrentQueryTab(QWidget *widget)
 {
@@ -743,7 +669,6 @@ void MainWindow::on_delete_clicked()
                               "Удалить запись(и)?") == QMessageBox::Yes)
     {
         QTableView *currentView = nullptr;
-        QSqlTableModel *currentModel = nullptr;
         QSqlQueryModel *queryModel = nullptr;
         int currentIndex = ui->tabWidget->currentIndex();
         QWidget *widget = ui->tabWidget->widget(currentIndex);
@@ -772,25 +697,49 @@ void MainWindow::on_delete_clicked()
 
         QSqlDatabase db = currentDatabase();
         QSqlRecord pk = db.primaryIndex(tab->table_name);
-
+        if(pk.count()==0)
+        {
+            QMessageBox::warning(this, "Внимание", "Вы работаете с представлением или таблицой без первичного ключа. "
+                                                   "Корректность операции не гарантируется.");
+        }
         QStringList rowConditions;
         QList<QVariant> bindValues;
 
         for (int row : rowsSet)
         {
             QStringList oneRow;
-
-            for (int i = 0; i < pk.count(); ++i)
+            if(pk.count()!=0)
             {
-                QString field = pk.fieldName(i);
-                int col = queryModel->record().indexOf(field);
-                QVariant value = queryModel->data(queryModel->index(row, col));
+                for (int i = 0; i < pk.count(); ++i)
+                {
+                    QString field = pk.fieldName(i);
+                    int col = queryModel->record().indexOf(field);
+                    QVariant value = queryModel->data(queryModel->index(row, col));
 
-                oneRow << QString("%1 = ?").arg(field);
-                bindValues << value;
+                    oneRow << QString("%1 = ?").arg(field);
+                    bindValues << value;
+                }
+
+                rowConditions << "(" + oneRow.join(" AND ") + ")";
+            }
+            else {
+                QSqlRecord rec = queryModel->record();
+
+                for (int col = 0; col < rec.count(); ++col)
+                {
+                    QString field = rec.fieldName(col);
+                    QVariant value = queryModel->data(queryModel->index(row, col));
+
+                    if (value.isNull()) {
+                        oneRow << QString("%1 IS NULL").arg(field);
+                    } else {
+                        oneRow << QString("%1 = ?").arg(field);
+                        bindValues << value;
+                    }
+                }
+                rowConditions << "(" + oneRow.join(" AND ") + ")";
             }
 
-            rowConditions << "(" + oneRow.join(" AND ") + ")";
         }
 
         QString sql = QString("DELETE FROM %1 WHERE %2")
@@ -872,6 +821,7 @@ void MainWindow::on_update_clicked()
     currentView->setSelectionBehavior(QAbstractItemView::SelectItems);
 
     QSqlDatabase db = QSqlDatabase::database(currentConnName);
+    QSqlRecord pk = db.primaryIndex(tab->table_name);
     QSqlTableModel* tableModel = new QSqlTableModel(this, db);
     tableModel->setTable(currentTableName);
     tableModel->setEditStrategy(QSqlTableModel::OnManualSubmit);
@@ -882,6 +832,11 @@ void MainWindow::on_update_clicked()
     std::set<int> columns;
     QList<int> rows;
 
+    if(pk.count()==0)
+    {
+        QMessageBox::warning(this, "Внимание", "Вы работаете с представлением или таблицой без первичного ключа. "
+                                               "Корректность операции не гарантируется.");
+    }
     if (indexes.isEmpty()) {
         QMessageBox::warning(this, "Ошибка", "Нет выбранных ячеек.");
         return;
@@ -994,6 +949,12 @@ void MainWindow::on_insert_clicked()
     }
     if (dlg.exec() == QDialog::Accepted)
     {   QSqlDatabase db = currentDatabase();
+        QSqlRecord pk = db.primaryIndex(tab->table_name);
+        if(pk.count()==0)
+        {
+            QMessageBox::warning(this, "Внимание", "Вы работаете с представлением или таблицой без первичного ключа. "
+                                                   "Корректность операции не гарантируется.");
+        }
         QString query = QString("INSERT INTO %1 (%2) VALUES (%3)").arg(currentTableName, fieldNames.join(" , "), placeholders.join(", "));
         QSqlQuery insert(query,db);
         insert.prepare(query);
@@ -1029,7 +990,7 @@ QString MainWindow::buildSearchCondition(QSqlQueryModel *model, QString &searchT
     QSqlRecord record = model->record();
     int index  = 0;
     static bool ok;
-    int intValue = searchText.toInt(&ok);
+    ok = searchText.toInt();
     searchText.replace("'", "''");
     searchText.replace("%", "\\%");
     searchText.replace("_", "\\_");
@@ -1044,7 +1005,7 @@ QString MainWindow::buildSearchCondition(QSqlQueryModel *model, QString &searchT
 
         QString placeholder = QString(":val%1").arg(index++);
 
-        // Для строковых полей используем LIKE
+
         if (fieldType == QVariant::String) {
             conditions.append(QString("CONTAINS(%1 , %2) OR %1 LIKE %3 ESCAPE '\\'")
                                   .arg(fieldName, placeholder+"full", placeholder));
@@ -1112,36 +1073,23 @@ void MainWindow::on_filter_clicked()
         static const QRegularExpression logicRe(R"(\s+(AND|OR)\s+)", QRegularExpression::CaseInsensitiveOption);
         QStringList parts = condition.split(logicRe, Qt::SkipEmptyParts);
         QRegularExpressionMatchIterator it = logicRe.globalMatch(condition);
-        int i = 0;
         QList<Condition> conditions;
         QString where;
         QRegularExpressionMatch match = re.match(condition.trimmed());
         QStringList logicOps;
         QStringList partsVal;
+        QSqlRecord rec = db.record(currentTableName);
+        QSet<QString> allowedOps = {"=", "<", ">", "<=", ">=", "LIKE"};
+        QSet<QString> allowedColumns;
+        for (int i = 0; i < rec.count(); ++i) {
+            allowedColumns.insert(rec.fieldName(i));
+        }
         while (it.hasNext())
         {
             QRegularExpressionMatch match = it.next();
             logicOps << match.captured(1).toUpper();
         }
-        for (const QString &part : std::as_const(parts))
-        {
-            QRegularExpressionMatch match = re.match(part.trimmed());
-
-            if (!match.hasMatch())
-                continue;
-
-            Condition c;
-            c.column = match.captured(1);
-            c.op = match.captured(2).toUpper();
-            c.value = match.captured(3).trimmed();
-
-            conditions << c;
-
-            QString cond;
-            cond = QString("%1 %2 :val%3").arg(c.column, c.op).arg(i);
-            partsVal << cond;
-            i++;
-        }
+        preparedParts(parts,conditions,partsVal,re,allowedOps,allowedColumns, ":val");
         if (!conditions.isEmpty())
         {
             where = partsVal[0];
@@ -1210,7 +1158,6 @@ void MainWindow::on_filter_clicked()
             }
     }
     }
-    //добавить and для условия, все остальное пока пойдет
     else if(action == "Update")
     {
         if(condition.isEmpty())
@@ -1283,7 +1230,7 @@ void MainWindow::on_filter_clicked()
             query.bindValue(":where" + QString::number(i), val);
 
         }
-
+        db.transaction();
         if(query.exec())
         {
             int rowsAffected = query.numRowsAffected();
@@ -1291,6 +1238,7 @@ void MainWindow::on_filter_clicked()
                                      QString("Обновлено строк: %1").arg(rowsAffected));
 
             currentModel->setQuery(query);
+            db.commit();
             setPage(*tab, primarykey);
             m_highlightDelegate->setSearchText(conditionsWhere[0].value);
             currentView->setItemDelegate(m_highlightDelegate);
@@ -1298,24 +1246,75 @@ void MainWindow::on_filter_clicked()
         else {
             QMessageBox::warning(this, "Ошибка",
                                  "Не удалось обновить: " + query.lastError().text());
+            db.rollback();
+            setPage(*tab, primarykey);
         }
 
     }
     else if(action == "Delete")
     {
-        QSqlDatabase db = QSqlDatabase::database(currentConnName);
+        static const QRegularExpression re(R"(^\s*([\w_]+)\s*(=)\s*(.+)\s*$)",
+                                           QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression whereRe("\\bWHERE\\b\\s+(.*)", QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression andRe(R"(\s+(AND|OR)\s+)", QRegularExpression::CaseInsensitiveOption);
+
+        QRegularExpressionMatch matchWhere = whereRe.match(condition.trimmed());
+        QString where = matchWhere.captured(1);
+        QStringList whereParts = where.split(andRe,Qt::SkipEmptyParts);
+        QString value;
+        QStringList logicOps;
+        where.clear();
+
+        QRegularExpressionMatchIterator it = andRe.globalMatch(condition);
+        QList<Condition> conditionsWhere;
+        QStringList partsVal;
+
+        QSqlRecord rec = db.record(currentTableName);
+        QSet<QString> allowedOps = {"=", "<", ">", "<=", ">=", "LIKE"};
+        QSet<QString> allowedColumns;
+        for (int i = 0; i < rec.count(); ++i) {
+            allowedColumns.insert(rec.fieldName(i));
+        }
+        while (it.hasNext())
+        {
+            QRegularExpressionMatch match = it.next();
+            logicOps << match.captured(1).toUpper();
+        }
+        preparedParts(whereParts,conditionsWhere,partsVal,re,allowedOps,allowedColumns, ":where");
+        if (!conditionsWhere.isEmpty())
+        {
+            value = partsVal[0];
+            for (int i = 1; i < conditionsWhere.size(); ++i)
+            {
+                QString op = logicOps.value(i-1);
+                value += " " + op + " " + partsVal[i];
+            }
+        }
 
         QString queryStr = QString("DELETE FROM %1 WHERE %2 ")
-                               .arg(currentTableName, condition);
+                               .arg(currentTableName, value);
         QSqlQuery query(db);
-        if (query.exec(queryStr)) {
+        query.prepare(queryStr);
+        for (int i = 0; i < conditionsWhere.size(); ++i)
+        {
+            QString val = conditionsWhere[i].value;
+
+            query.bindValue(":where" + QString::number(i), val);
+
+        }
+        db.transaction();
+        if (query.exec()) {
             int rowsAffected = query.numRowsAffected();
             QMessageBox::information(this, "Успех",
-                                     QString("Обновлено строк: %1").arg(rowsAffected));
-           // tab->model->select();
+                                     QString("Удалено строк: %1").arg(rowsAffected));
+            currentModel->setQuery(query);
+            db.commit();
+            setPage(*tab, primarykey);
         } else {
             QMessageBox::warning(this, "Ошибка",
-                                 "Не удалось обновить: " + query.lastError().text());
+                                 "Не удалось удалить строку: " + query.lastError().text());
+            db.rollback();
+            setPage(*tab, primarykey);
 
     }
     }
@@ -1384,6 +1383,6 @@ void MainWindow::on_pushButton_clear_clicked()
 }
 
 // ту ду, че еще надо сделать
-//Соответсвенно удаление(нормальное!), работа с функциями, индексами, процедурами, ввод/вывод данных в виде форм, импорт в один из форматов, писалка sql запросов,
+//Соответсвенно работа с функциями, индексами, процедурами, ввод/вывод данных в виде форм, импорт в один из форматов, писалка sql запросов,
 //метрики производительности, например нагрузка на сервер и т.д., планировщик запросов и его вывод, обработку ошибок, расширить работу с таблицами, реализовать простой интерфейс для работы
 //с ролями

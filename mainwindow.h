@@ -40,13 +40,6 @@ struct Condition {
     QString op;
     QString value;
 };
-struct TableTab
-{
-    QTableView *table;
-    QSqlTableModel * model;
-    QString table_name;
-    QString conn_name;
-};
 struct Placeholders{
     QString ph;
     bool isNumeric;
@@ -88,11 +81,9 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
     int connect_to_database();
-    TableTab* findTab(const QString &tableName, const QString &connName);
     QueryTab* findQueryTab(const QString &tableName, const QString &connName);
     int disconnect_db();
     QString buildSearchCondition(QSqlQueryModel *model, QString &searchText, QList<Placeholders> &placeholders);
-    TableTab *getCurrentTableTab(QWidget *widget);
     QueryTab *getCurrentQueryTab(QWidget *widget);
 
 
@@ -111,7 +102,6 @@ private slots:
     void on_login_connect();
     void tab_close(int index);
     void on_pushButton_addTab_clicked();
-    void add_table(const QString &tableName, const QString &connectionName);
     void add_query_table(const QString &tableName, const QString &connectionName);
     void on_delete_clicked();
     void on_update_clicked();
@@ -137,13 +127,12 @@ private:
     QSqlDatabase currentDatabase() const;
     void setActive(QTreeWidgetItem *);
     QString activeDb;
-    QVector<TableTab> tableTabs;
+
     QVector<QueryTab> queryTabs;
     void dropTable(QTreeWidgetItem *item);
     void renameTable(QTreeWidgetItem *item);
     void showTriggers(QTreeWidgetItem *item);
     void showFunctions(QTreeWidgetItem *item);
-    void showTable(QTreeWidgetItem *item);
     void preparedParts(const QStringList &parts, QList<Condition> &conditions, QStringList &partsVal, const QRegularExpression re,
                        const QSet<QString> &allowedOps, const QSet<QString> allowedColumns, const QString &binding);
 
