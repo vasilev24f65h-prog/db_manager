@@ -1390,72 +1390,6 @@ void MainWindow::on_pushButton_clear_clicked()
 
 void MainWindow::on_pushButton_form_output_clicked()
 {
-    /*
-     *
-     *
-     *     QDialog dlg(this);
-    dlg.setWindowTitle("Просмотр записи");
-    dlg.resize(500, 400);
-
-    QVBoxLayout *mainLayout = new QVBoxLayout(&dlg);
-    int currentIndex = ui->tabWidget->currentIndex();
-    QWidget *widget = ui->tabWidget->widget(currentIndex);
-    QueryTab *tab = getCurrentQueryTab(widget);
-
-    if (!tab || !tab->model) {
-        QMessageBox::warning(this, "Ошибка", "Нет модели");
-        return;
-    }
-    // 🔹 Заголовок
-    QLabel *title = new QLabel("Карточка записи");
-    title->setStyleSheet("font-size: 18px; font-weight: bold;");
-    title->setAlignment(Qt::AlignCenter);
-    mainLayout->addWidget(title);
-
-    // 🔹 Скролл
-    QScrollArea *scroll = new QScrollArea;
-    scroll->setWidgetResizable(true);
-
-    QWidget *container = new QWidget;
-    QVBoxLayout *containerLayout = new QVBoxLayout(container);
-
-    // 🔹 Группа
-    QGroupBox *group = new QGroupBox("Данные");
-    QFormLayout *form = new QFormLayout(group);
-
-    // 👉 Получаем текущую запись
-    int row = tab->table->currentIndex().row();
-    QSqlRecord record = tab->model->record(row);
-
-    // 🔹 Заполняем форму
-    for (int i = 0; i < record.count(); ++i)
-    {
-        QString fieldName = record.fieldName(i);
-        QVariant value = record.value(i);
-
-        QLabel *label = new QLabel(fieldName);
-        label->setStyleSheet("font-weight: bold;");
-
-        QLabel *valueLabel = new QLabel(value.toString());
-        valueLabel->setWordWrap(true);
-
-        form->addRow(label, valueLabel);
-    }
-
-    containerLayout->addWidget(group);
-    scroll->setWidget(container);
-    mainLayout->addWidget(scroll);
-
-    // 🔹 Кнопка закрытия
-    QDialogButtonBox *btn = new QDialogButtonBox(QDialogButtonBox::Close);
-    connect(btn, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-    connect(btn, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-
-    mainLayout->addWidget(btn);
-
-    dlg.exec();
-
-*/
     QDialog dlg(this);
     dlg.setWindowTitle("Карточка записи");
     dlg.resize(500, 400);
@@ -1496,62 +1430,104 @@ void MainWindow::on_pushButton_form_output_clicked()
     QModelIndex index = tab->table->currentIndex();
     int row = index.row();
     QSqlRecord record = tab->model->record(row);
+    qDebug() << "ROW =" << index.row();
 
     for (int i = 0; i < record.count(); ++i)
     {
-        QSqlField field = record.field(i);
-        QString fieldName = field.name();
-
-        QLabel *label = new QLabel(fieldName);
-        label->setStyleSheet("font-weight: bold;");
-
-        QWidget *editor = nullptr;
-        QVariant value = record.value(i);
-        if (field.type() == QVariant::Date) {
-            QDateEdit *dateEdit = new QDateEdit;
-            dateEdit->setCalendarPopup(true);
-            if (value.isValid())
-                dateEdit->setDate(value.toDate());
-            editor = dateEdit;
-        }
-        else if (field.type() == QVariant::Int) {
-            QSpinBox *spin = new QSpinBox;
-
-            if (value.isValid())
-                spin->setValue(value.toInt());
-
-            editor = spin;
-        }
-        else if (field.type() == QVariant::Double) {
-            QDoubleSpinBox *dspin = new QDoubleSpinBox;
-            if (value.isValid())
-                dspin->setValue(value.toDouble());
-            editor = dspin;
-        }
-        else if (field.type() == QVariant::Bool) {
-            QCheckBox *cbox = new QCheckBox;
-            if(value.isValid())
-                cbox->setChecked(value.toBool());
-            editor = cbox;
-        }
-        else {
-            QLineEdit *lineEdit = new QLineEdit;
-
-            if (value.isValid())
-                lineEdit->setText(value.toString());
-
-            lineEdit->setPlaceholderText("Введите " + field.name());
-
-            editor = lineEdit;
-
-        }
-
-        editors.push_back(editor);
-        fieldNames << fieldName;
-        placeholders << QString(":v%1").arg(i);
-        commit << fieldName + " = " + placeholders[i];
-        form->addRow(label, editor);
+        qDebug() << record.fieldName(i) << record.value(i);
     }
+    int count = tab->table->selectionModel()->selectedRows().count();
+    auto selected = tab->table->selectionModel()->selectedRows();
+    if(count >1)
+    {
+        QGroupBox *visitsGroup = new QGroupBox("Посещения");
+        QVBoxLayout *visitsLayout = new QVBoxLayout(visitsGroup);
+
+        QListWidget *list = new QListWidget;
+        visitsLayout->addWidget(list);
+
+        containerLayout->addWidget(visitsGroup);
+        for (const QModelIndex &index : std::as_const(selected))
+        {
+            int row = index.row();
+
+            QSqlRecord record = tab->model->record(row);
+
+            qDebug() << "ROW =" << row;
+
+            QListWidgetItem *item = new QListWidgetItem;
+
+            listforms *widget = new listforms(record);
+            widget->adjustSize();
+            item->setSizeHint(widget->sizeHint());
+            list->setUniformItemSizes(false);
+            list->addItem(item);
+            list->setItemWidget(item, widget);
+            connect(widget, &listforms::sizeChanged, [=]() {
+                item->setSizeHint(widget->sizeHint());
+                list->doItemsLayout();
+            });
+        }
+        qDebug() << "List count =" << list->count();
+    }
+    else {
+        for (int i = 0; i < record.count(); ++i)
+        {
+            QSqlField field = record.field(i);
+            QString fieldName = field.name();
+
+            QLabel *label = new QLabel(fieldName);
+            label->setStyleSheet("font-weight: bold;");
+
+            QWidget *editor = nullptr;
+            QVariant value = record.value(i);
+            if (field.type() == QVariant::Date) {
+                QDateEdit *dateEdit = new QDateEdit;
+                dateEdit->setCalendarPopup(true);
+                if (value.isValid())
+                    dateEdit->setDate(value.toDate());
+                editor = dateEdit;
+            }
+            else if (field.type() == QVariant::Int) {
+                QSpinBox *spin = new QSpinBox;
+
+                if (value.isValid())
+                    spin->setValue(value.toInt());
+
+                editor = spin;
+            }
+            else if (field.type() == QVariant::Double) {
+                QDoubleSpinBox *dspin = new QDoubleSpinBox;
+                if (value.isValid())
+                    dspin->setValue(value.toDouble());
+                editor = dspin;
+            }
+            else if (field.type() == QVariant::Bool) {
+                QCheckBox *cbox = new QCheckBox;
+                if(value.isValid())
+                    cbox->setChecked(value.toBool());
+                editor = cbox;
+            }
+            else {
+                QLineEdit *lineEdit = new QLineEdit;
+
+                if (value.isValid())
+                    lineEdit->setText(value.toString());
+
+                lineEdit->setPlaceholderText("Введите " + field.name());
+
+                editor = lineEdit;
+
+            }
+
+            editors.push_back(editor);
+            fieldNames << fieldName;
+            placeholders << QString(":v%1").arg(i);
+            commit << fieldName + " = " + placeholders[i];
+            form->addRow(label, editor);
+        }
+    }
+
 
     containerLayout->addWidget(group);
     scroll->setWidget(container);
@@ -1652,3 +1628,28 @@ void MainWindow::on_pushButton_form_output_clicked()
 
 }
 
+/*
+ *
+ * while (q.next())
+{
+    QSqlRecord rec = q.record();
+
+    QListWidgetItem *item = new QListWidgetItem(list);
+
+    VisitWidget *widget = new VisitWidget(rec);
+
+    item->setSizeHint(widget->sizeHint());
+
+    list->addItem(item);
+    list->setItemWidget(item, widget);
+}
+ *
+ * QGroupBox *visitsGroup = new QGroupBox("Посещения");
+QVBoxLayout *visitsLayout = new QVBoxLayout(visitsGroup);
+
+QListWidget *list = new QListWidget;
+visitsLayout->addWidget(list);
+
+containerLayout->addWidget(visitsGroup);
+ *
+ * */

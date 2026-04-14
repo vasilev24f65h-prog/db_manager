@@ -32,6 +32,8 @@
 #include <QDateEdit>
 #include <QRadioButton>
 #include <QButtonGroup>
+#include <QListWidgetItem>
+#include "listforms.h"
 #include "dialog_auth.h"
 #include "highlightdelegate.h"
 #include "logicupdate.h"

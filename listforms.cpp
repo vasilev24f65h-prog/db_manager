@@ -1,0 +1,47 @@
+#include "listforms.h"
+#include "qboxlayout.h"
+#include "qdatetime.h"
+#include "qdebug.h"
+#include "qformlayout.h"
+#include "qlabel.h"
+#include "qpushbutton.h"
+#include "qvariant.h"
+
+listforms::listforms(const QSqlRecord &record, QWidget *parent)
+    : QWidget(parent)
+{
+    qDebug() << "record.count =" << record.count();
+
+    for (int i = 0; i < record.count(); ++i)
+    {
+        qDebug() << record.fieldName(i) << record.value(i);
+    }
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(this);
+    mainLayout->setSpacing(5);
+    QString title = "Exemple title";
+
+    QPushButton *header = new QPushButton("▶ " + title);
+    header->setCheckable(true);
+    header->setMinimumHeight(30);
+    QWidget *details = new QWidget;
+    QFormLayout *form = new QFormLayout(details);
+    for (int i = 0; i < record.count(); ++i)
+    {
+        QString name = record.fieldName(i);
+        QVariant value = record.value(i);
+        form->addRow(name, new QLabel(value.toString()));
+    }
+
+    details->setVisible(false);
+
+    connect(header, &QPushButton::toggled, [=](bool checked){
+        details->setVisible(checked);
+        header->setText((checked ? "▼ " : "▶ ") + title);
+        adjustSize();
+        emit sizeChanged();
+    });
+
+    mainLayout->addWidget(header);
+    mainLayout->addWidget(details);
+}

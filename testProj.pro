@@ -14,6 +14,7 @@ CONFIG += c++17
 SOURCES += \
     dialog_auth.cpp \
     highlightdelegate.cpp \
+    listforms.cpp \
     logicupdate.cpp \
     main.cpp \
     mainwindow.cpp \
@@ -23,6 +24,7 @@ SOURCES += \
 HEADERS += \
     dialog_auth.h \
     highlightdelegate.h \
+    listforms.h \
     logicupdate.h \
     mainwindow.h
 
