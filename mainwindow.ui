@@ -76,7 +76,7 @@
          </widget>
         </item>
         <item>
-         <widget class="QPushButton" name="pushButton">
+         <widget class="QPushButton" name="pushButton_form_output">
           <property name="text">
            <string>PushButton</string>
           </property>

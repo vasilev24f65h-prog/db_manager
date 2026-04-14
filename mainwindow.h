@@ -25,6 +25,13 @@
 #include <QSqlQuery>
 #include <QSqlDriver>
 #include <QSqlIndex>
+#include <QScrollArea>
+#include <QSpinBox>
+#include <QCalendar>
+#include <QCheckBox>
+#include <QDateEdit>
+#include <QRadioButton>
+#include <QButtonGroup>
 #include "dialog_auth.h"
 #include "highlightdelegate.h"
 #include "logicupdate.h"
@@ -111,6 +118,8 @@ private slots:
     void setPage(QueryTab &tab, const QString primarykey);
 
     void on_pushButton_clear_clicked();
+
+    void on_pushButton_form_output_clicked();
 
 protected:
 

@@ -1,5 +1,6 @@
 
 #include "mainwindow.h"
+#include "qgroupbox.h"
 #include "qlabel.h"
 #include "qlineedit.h"
 #include "ui_mainwindow.h"
@@ -880,7 +881,7 @@ void MainWindow::on_update_clicked()
     }
 
 }
-//формировать sql запрос на вставку вручную, потом отсанется только поиск и фильтры переделать и в приципе все тогда будет готово
+
 // потом останется ввод и вывод информации в виде форм сделать и удалить код связанный с tablemodel.
 // далее надо будет сосредоточиться на админском функционале
 void MainWindow::on_insert_clicked()
@@ -1386,3 +1387,268 @@ void MainWindow::on_pushButton_clear_clicked()
 //Соответсвенно работа с функциями, индексами, процедурами, ввод/вывод данных в виде форм, импорт в один из форматов, писалка sql запросов,
 //метрики производительности, например нагрузка на сервер и т.д., планировщик запросов и его вывод, обработку ошибок, расширить работу с таблицами, реализовать простой интерфейс для работы
 //с ролями
+
+void MainWindow::on_pushButton_form_output_clicked()
+{
+    /*
+     *
+     *
+     *     QDialog dlg(this);
+    dlg.setWindowTitle("Просмотр записи");
+    dlg.resize(500, 400);
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(&dlg);
+    int currentIndex = ui->tabWidget->currentIndex();
+    QWidget *widget = ui->tabWidget->widget(currentIndex);
+    QueryTab *tab = getCurrentQueryTab(widget);
+
+    if (!tab || !tab->model) {
+        QMessageBox::warning(this, "Ошибка", "Нет модели");
+        return;
+    }
+    // 🔹 Заголовок
+    QLabel *title = new QLabel("Карточка записи");
+    title->setStyleSheet("font-size: 18px; font-weight: bold;");
+    title->setAlignment(Qt::AlignCenter);
+    mainLayout->addWidget(title);
+
+    // 🔹 Скролл
+    QScrollArea *scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+
+    QWidget *container = new QWidget;
+    QVBoxLayout *containerLayout = new QVBoxLayout(container);
+
+    // 🔹 Группа
+    QGroupBox *group = new QGroupBox("Данные");
+    QFormLayout *form = new QFormLayout(group);
+
+    // 👉 Получаем текущую запись
+    int row = tab->table->currentIndex().row();
+    QSqlRecord record = tab->model->record(row);
+
+    // 🔹 Заполняем форму
+    for (int i = 0; i < record.count(); ++i)
+    {
+        QString fieldName = record.fieldName(i);
+        QVariant value = record.value(i);
+
+        QLabel *label = new QLabel(fieldName);
+        label->setStyleSheet("font-weight: bold;");
+
+        QLabel *valueLabel = new QLabel(value.toString());
+        valueLabel->setWordWrap(true);
+
+        form->addRow(label, valueLabel);
+    }
+
+    containerLayout->addWidget(group);
+    scroll->setWidget(container);
+    mainLayout->addWidget(scroll);
+
+    // 🔹 Кнопка закрытия
+    QDialogButtonBox *btn = new QDialogButtonBox(QDialogButtonBox::Close);
+    connect(btn, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    connect(btn, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+
+    mainLayout->addWidget(btn);
+
+    dlg.exec();
+
+*/
+    QDialog dlg(this);
+    dlg.setWindowTitle("Карточка записи");
+    dlg.resize(500, 400);
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(&dlg);
+
+    QLabel *title = new QLabel("Карточка записи");
+    title->setStyleSheet("font-size: 18px; font-weight: bold;");
+    title->setAlignment(Qt::AlignCenter);
+
+    mainLayout->addWidget(title);
+
+
+    QScrollArea *scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+
+    QWidget *container = new QWidget;
+    QVBoxLayout *containerLayout = new QVBoxLayout(container);
+
+    QGroupBox *group = new QGroupBox("Основная информация");
+    QRadioButton *insert = new QRadioButton("Вставка");
+    QRadioButton *update = new QRadioButton("Обновление");
+    QRadioButton *delete_btn = new QRadioButton("Удаление");
+    QFormLayout *form = new QFormLayout(group);
+    QButtonGroup *groupBtn = new QButtonGroup(&dlg);
+    groupBtn->addButton(insert);
+    groupBtn->addButton(update);
+    groupBtn->addButton(delete_btn);
+    QVector<QWidget*> editors;
+    QStringList fieldNames;
+    QStringList placeholders;
+    QStringList commit;
+
+    int currentIndex = ui->tabWidget->currentIndex();
+    QWidget *widget = ui->tabWidget->widget(currentIndex);
+    QueryTab *tab = getCurrentQueryTab(widget);
+
+    QModelIndex index = tab->table->currentIndex();
+    int row = index.row();
+    QSqlRecord record = tab->model->record(row);
+
+    for (int i = 0; i < record.count(); ++i)
+    {
+        QSqlField field = record.field(i);
+        QString fieldName = field.name();
+
+        QLabel *label = new QLabel(fieldName);
+        label->setStyleSheet("font-weight: bold;");
+
+        QWidget *editor = nullptr;
+        QVariant value = record.value(i);
+        if (field.type() == QVariant::Date) {
+            QDateEdit *dateEdit = new QDateEdit;
+            dateEdit->setCalendarPopup(true);
+            if (value.isValid())
+                dateEdit->setDate(value.toDate());
+            editor = dateEdit;
+        }
+        else if (field.type() == QVariant::Int) {
+            QSpinBox *spin = new QSpinBox;
+
+            if (value.isValid())
+                spin->setValue(value.toInt());
+
+            editor = spin;
+        }
+        else if (field.type() == QVariant::Double) {
+            QDoubleSpinBox *dspin = new QDoubleSpinBox;
+            if (value.isValid())
+                dspin->setValue(value.toDouble());
+            editor = dspin;
+        }
+        else if (field.type() == QVariant::Bool) {
+            QCheckBox *cbox = new QCheckBox;
+            if(value.isValid())
+                cbox->setChecked(value.toBool());
+            editor = cbox;
+        }
+        else {
+            QLineEdit *lineEdit = new QLineEdit;
+
+            if (value.isValid())
+                lineEdit->setText(value.toString());
+
+            lineEdit->setPlaceholderText("Введите " + field.name());
+
+            editor = lineEdit;
+
+        }
+
+        editors.push_back(editor);
+        fieldNames << fieldName;
+        placeholders << QString(":v%1").arg(i);
+        commit << fieldName + " = " + placeholders[i];
+        form->addRow(label, editor);
+    }
+
+    containerLayout->addWidget(group);
+    scroll->setWidget(container);
+    mainLayout->addWidget(scroll);
+
+    QDialogButtonBox *btn = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+
+    QObject::connect(btn, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    QObject::connect(btn, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    mainLayout->addWidget(insert);
+    mainLayout->addWidget(update);
+    mainLayout->addWidget(delete_btn);
+    mainLayout->addWidget(btn);
+
+    if (dlg.exec() == QDialog::Accepted)
+    {
+        QSqlDatabase db = currentDatabase();
+        QSqlRecord pk = db.primaryIndex(tab->table_name);
+        QStringList conditions;
+        QString query;
+        for (int i = 0; i < pk.count(); ++i)
+        {
+            QString name = pk.fieldName(i);
+            conditions << QString("%1 = :%1").arg(name);
+        }
+        if(insert->isChecked())
+        {
+            query = QString("INSERT INTO %1 (%2) VALUES (%3)")
+            .arg(tab->table_name,
+                 fieldNames.join(", "),
+                 placeholders.join(", "));
+        }
+        else if(update->isChecked())
+        {
+            QString whereClause = conditions.join(" AND ");
+            query = QString("UPDATE %1 SET %2 WHERE %3")
+                        .arg(tab->table_name,
+                             commit.join(", "),
+                             whereClause);
+        }
+        else if(delete_btn->isChecked())
+        {
+            QString whereClause = conditions.join(" AND ");
+            query = QString("DELETE FROM %1 WHERE %2")
+                        .arg(tab->table_name,
+                             whereClause);
+        }
+
+        QSqlQuery insert(db);
+        if (query.isEmpty()) {
+            QMessageBox::warning(this, "Ошибка", "Выберите операцию");
+            return;
+        }
+        insert.prepare(query);
+
+        for (int i = 0; i < editors.size(); ++i)
+        {
+            QVariant value;
+
+            if (auto line = qobject_cast<QLineEdit*>(editors[i]))
+                value = line->text();
+
+            else if (auto spin = qobject_cast<QSpinBox*>(editors[i]))
+                value = spin->value();
+
+            else if (auto dspin = qobject_cast<QDoubleSpinBox*>(editors[i]))
+                value = dspin->value();
+
+            else if (auto date = qobject_cast<QDateEdit*>(editors[i]))
+                value = date->date();
+
+            else if (auto check = qobject_cast<QCheckBox*>(editors[i]))
+                value = check->isChecked();
+
+            if (!value.isValid() || value.isNull())
+                insert.bindValue(QString(":v%1").arg(i), QVariant());
+            else
+                insert.bindValue(QString(":v%1").arg(i), value);
+        }
+        for (int i = 0; i < pk.count(); ++i)
+        {
+            QString name = pk.fieldName(i);
+            insert.bindValue(":" + name, record.value(name));
+        }
+        db.transaction();
+
+        if (insert.exec()) {
+            db.commit();
+            tab->model->setQuery(tab->model->query().lastQuery(), db);
+            QMessageBox::information(this, "Успех", "Запись обновлена");
+
+        } else {
+            db.rollback();
+            QMessageBox::critical(this, "Ошибка", insert.lastError().text());
+        }
+    }
+
+}
+
