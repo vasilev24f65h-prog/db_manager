@@ -33,6 +33,11 @@
 #include <QRadioButton>
 #include <QButtonGroup>
 #include <QListWidgetItem>
+#include <QTextBrowser>
+#include <QPrinter>
+#include <QPrintPreviewDialog>
+#include <QStyleFactory>
+#include <QSettings>
 #include "listforms.h"
 #include "dialog_auth.h"
 #include "highlightdelegate.h"
@@ -94,7 +99,7 @@ public:
     int disconnect_db();
     QString buildSearchCondition(QSqlQueryModel *model, QString &searchText, QList<Placeholders> &placeholders);
     QueryTab *getCurrentQueryTab(QWidget *widget);
-
+    bool isView(QSqlDatabase db, const QString &name);
 
 signals:
     void tableActivated(const QString &table);
@@ -123,12 +128,14 @@ private slots:
 
     void on_pushButton_form_output_clicked();
 
+    void on_pushButton_to_html_clicked();
+
 protected:
 
 
 private:
     Ui::MainWindow *ui;
-    QString username, password, namedb;
+    QString username, password, namedb, connection_addres, connection_name;
     QAction *metaDataAction;
     QAction *refreshAction;
     QAction *loginAction;
@@ -146,7 +153,7 @@ private:
     void showFunctions(QTreeWidgetItem *item);
     void preparedParts(const QStringList &parts, QList<Condition> &conditions, QStringList &partsVal, const QRegularExpression re,
                        const QSet<QString> &allowedOps, const QSet<QString> allowedColumns, const QString &binding);
-
-
+    void filter_list(const QString &condition, const QString &table_name, QString &sql,  QList<Condition> &conditions);
+   // void html_form();
 };
 #endif // MAINWINDOW_H

@@ -25,7 +25,7 @@ MainWindow::MainWindow(QWidget *parent)
     addDockWidget(Qt::BottomDockWidgetArea, dock);
 
     dock->setMinimumHeight(100);
-
+    QSettings settings;
 
     ui->treeWidget->setObjectName(QLatin1String("tree"));
     ui->treeWidget->setHeaderLabels(QStringList(tr("database")));
@@ -54,7 +54,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->pushButton_insertRow,&QPushButton::clicked,this,&MainWindow::on_insert_clicked );
     connect(ui->pushButton_sendAction,&QPushButton::clicked,this,&MainWindow::on_filter_clicked );
     QTimer::singleShot(0, this, &MainWindow::on_login_connect);
-
 
 }
 
@@ -229,11 +228,13 @@ void MainWindow::on_login_connect()
     dlg->setWindowModality(Qt::WindowModal);
     dlg->setWindowFlag(Qt::WindowStaysOnTopHint);
 
-    connect(dlg, &Dialog_auth::credentialsEntered, this, [=](const QString &u, const QString &p,const QString &db ){
+    connect(dlg, &Dialog_auth::credentialsEntered, this, [=](const QString &u, const QString &p,const QString &db, const QString &host, const QString &conn ){
+        connection_name = conn;
+        connection_addres = host;
         username = u;
         password = p;
         namedb = db;
-        qDebug() << "User:" << username << "Password:" << password << "Database" << namedb;
+        qDebug() << "User:" << username << "Password:" << password << "Database" << namedb << "Connection" << connection_addres;
         int res = connect_to_database();
         qDebug() << "res connecting db " << res;
     });
@@ -244,11 +245,12 @@ void MainWindow::on_login_connect()
 
 int MainWindow::connect_to_database()
 {
+
     static int counter_conn = 0;
     ++counter_conn;
     QString conn_name = QString("Connection_%1").arg(counter_conn);
-    QString connection = QString("Driver={ODBC Driver 17 for SQL Server};Server=127.0.0.1;Database=%1;UID=%2;PWD=%3;")
-        .arg(namedb,username,password);
+    QString connection = QString("Driver={ODBC Driver 17 for SQL Server};Server=%1;Database=%2;UID=%3;PWD=%4;")
+        .arg(connection_addres, namedb,username,password);
 
     qDebug() << QSqlDatabase::drivers();
     QSqlDatabase db =  QSqlDatabase::addDatabase("QODBC3", conn_name);
@@ -264,6 +266,7 @@ int MainWindow::connect_to_database()
         qDebug() << "Connection failed:" << db.lastError().text();
         return 1;
     }
+
 
 }
 
@@ -827,7 +830,6 @@ void MainWindow::on_update_clicked()
     tableModel->setTable(currentTableName);
     tableModel->setEditStrategy(QSqlTableModel::OnManualSubmit);
     tableModel->select();
-// Привязываем таблицу к view
 
     QModelIndexList indexes = currentView->selectionModel()->selectedIndexes();
     std::set<int> columns;
@@ -1426,7 +1428,7 @@ void MainWindow::on_pushButton_form_output_clicked()
     int currentIndex = ui->tabWidget->currentIndex();
     QWidget *widget = ui->tabWidget->widget(currentIndex);
     QueryTab *tab = getCurrentQueryTab(widget);
-
+    QSqlDatabase db = currentDatabase();
     QModelIndex index = tab->table->currentIndex();
     int row = index.row();
     QSqlRecord record = tab->model->record(row);
@@ -1442,8 +1444,19 @@ void MainWindow::on_pushButton_form_output_clicked()
     {
         QGroupBox *visitsGroup = new QGroupBox("Посещения");
         QVBoxLayout *visitsLayout = new QVBoxLayout(visitsGroup);
-
+        QHBoxLayout *queryLine = new QHBoxLayout();
+        QLineEdit *query = new QLineEdit;
         QListWidget *list = new QListWidget;
+        QPushButton *send = new QPushButton("Send query");
+        QPushButton *clear = new QPushButton("x");
+        clear->setFixedWidth(20);
+        queryLine->setStretch(0, 1);
+        query->setPlaceholderText("Find...");
+        queryLine->addWidget(query);
+        queryLine->addWidget(send);
+        queryLine->addWidget(clear);
+
+        visitsLayout->addLayout(queryLine);
         visitsLayout->addWidget(list);
 
         containerLayout->addWidget(visitsGroup);
@@ -1463,6 +1476,8 @@ void MainWindow::on_pushButton_form_output_clicked()
             list->setUniformItemSizes(false);
             list->addItem(item);
             list->setItemWidget(item, widget);
+            list->setFocusPolicy(Qt::NoFocus);
+            list->setSelectionMode(QAbstractItemView::NoSelection);
             connect(widget, &listforms::sizeChanged, [=]() {
                 item->setSizeHint(widget->sizeHint());
                 list->doItemsLayout();
@@ -1490,7 +1505,7 @@ void MainWindow::on_pushButton_form_output_clicked()
             }
             else if (field.type() == QVariant::Int) {
                 QSpinBox *spin = new QSpinBox;
-
+                spin->setRange(INT_MIN, INT_MAX);
                 if (value.isValid())
                     spin->setValue(value.toInt());
 
@@ -1498,6 +1513,7 @@ void MainWindow::on_pushButton_form_output_clicked()
             }
             else if (field.type() == QVariant::Double) {
                 QDoubleSpinBox *dspin = new QDoubleSpinBox;
+                dspin->setRange(-1e12, 1e12);
                 if (value.isValid())
                     dspin->setValue(value.toDouble());
                 editor = dspin;
@@ -1528,7 +1544,13 @@ void MainWindow::on_pushButton_form_output_clicked()
         }
     }
 
-
+    if (isView(db,tab->table_name)) {
+        insert->setVisible(false);
+        update->setVisible(false);
+        delete_btn->setVisible(false);
+        QMessageBox::warning(this, "Внимание", "Вы работаете с представлением. "
+                                               "Оно будет представлено в режиме \"Только для чтения\"");
+    }
     containerLayout->addWidget(group);
     scroll->setWidget(container);
     mainLayout->addWidget(scroll);
@@ -1537,15 +1559,17 @@ void MainWindow::on_pushButton_form_output_clicked()
 
     QObject::connect(btn, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     QObject::connect(btn, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-
-    mainLayout->addWidget(insert);
-    mainLayout->addWidget(update);
-    mainLayout->addWidget(delete_btn);
-    mainLayout->addWidget(btn);
-
-    if (dlg.exec() == QDialog::Accepted)
+    if(count <= 1)
     {
-        QSqlDatabase db = currentDatabase();
+        mainLayout->addWidget(insert);
+        mainLayout->addWidget(update);
+        mainLayout->addWidget(delete_btn);
+        mainLayout->addWidget(btn);
+    }
+
+
+    if (count <= 1 &&dlg.exec() == QDialog::Accepted)
+    {
         QSqlRecord pk = db.primaryIndex(tab->table_name);
         QStringList conditions;
         QString query;
@@ -1625,31 +1649,92 @@ void MainWindow::on_pushButton_form_output_clicked()
             QMessageBox::critical(this, "Ошибка", insert.lastError().text());
         }
     }
+    else if (count > 1)
+    {
+        dlg.exec();
+    }
 
 }
 
-/*
- *
- * while (q.next())
+bool MainWindow::isView(QSqlDatabase db, const QString &name)
 {
-    QSqlRecord rec = q.record();
+    QSqlQuery q(db);
+    q.prepare("SELECT OBJECTPROPERTY(OBJECT_ID(:name), 'IsView')");
+    q.bindValue(":name", name);
 
-    QListWidgetItem *item = new QListWidgetItem(list);
+    if (q.exec() && q.next())
+        return q.value(0).toInt() == 1;
 
-    VisitWidget *widget = new VisitWidget(rec);
-
-    item->setSizeHint(widget->sizeHint());
-
-    list->addItem(item);
-    list->setItemWidget(item, widget);
+    return false;
 }
- *
- * QGroupBox *visitsGroup = new QGroupBox("Посещения");
-QVBoxLayout *visitsLayout = new QVBoxLayout(visitsGroup);
 
-QListWidget *list = new QListWidget;
-visitsLayout->addWidget(list);
+void MainWindow::on_pushButton_to_html_clicked()
+{
+    QString html;
+    html += R"(
+<html>
+<head>
+<style>
+body {
+    font-family: Arial;
+    margin: 20px;
+}
+.table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #ccc;
+}
+.label {
+    font-weight: bold;
+    width: 30%;
+}
+</style>
+</head>
+<body>
+<table class="table">
+)";
+    int currentIndex = ui->tabWidget->currentIndex();
+    QWidget *widget = ui->tabWidget->widget(currentIndex);
+    QueryTab *tab = getCurrentQueryTab(widget);
 
-containerLayout->addWidget(visitsGroup);
- *
- * */
+    auto selected = tab->table->selectionModel()->selectedRows();
+
+    for (const QModelIndex &index : std::as_const(selected))
+    {
+        QSqlRecord record = tab->model->record(index.row());
+
+        for (int i = 0; i < record.count(); ++i)
+        {
+            QString name = record.fieldName(i);
+            QString value = record.value(i).toString().toHtmlEscaped();
+
+            html += "<tr>";
+            html += "<td class='label'>" + name + "</td>";
+            html += "<td>" + value + "</td>";
+            html += "</tr>";
+        }
+    }
+
+    html += "</table></body></html>";
+
+    QTextDocument *doc = new QTextDocument();
+    doc->setHtml(html);
+
+    QPrinter *printer = new QPrinter(QPrinter::HighResolution);
+
+    QPrintPreviewDialog preview(printer, this);
+
+    connect(&preview, &QPrintPreviewDialog::paintRequested,
+            this, [doc](QPrinter *p) {
+                doc->print(p);
+            });
+
+    preview.exec();
+
+
+
+}
+
