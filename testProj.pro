@@ -19,6 +19,7 @@ SOURCES += \
     main.cpp \
     mainwindow.cpp \
     parser.cpp \
+    templatemanager.cpp \
     updateExecute.cpp
 
 HEADERS += \
@@ -26,7 +27,8 @@ HEADERS += \
     highlightdelegate.h \
     listforms.h \
     logicupdate.h \
-    mainwindow.h
+    mainwindow.h \
+    templatemanager.h
 
 FORMS += \
     ../../Qt/Examples/Qt-5.15.2/sql/sqlbrowser/browserwidget.ui \

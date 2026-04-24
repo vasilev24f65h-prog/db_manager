@@ -109,7 +109,7 @@ void Dialog_auth::on_pushButton_add_connection_clicked()
     settings.setValue(key + "/database", ui->lineEdit_db->text());
     settings.setValue(key + "/user", ui->lineEdit_username->text());
 
-    loadConnections(); // ОБНОВЛЕНИЕ UI
+    loadConnections();
 }
 
 void Dialog_auth::deleteConnection(const QString &name)
@@ -117,8 +117,8 @@ void Dialog_auth::deleteConnection(const QString &name)
     QSettings settings("Exempl", "DBApp");
 
     settings.beginGroup("connections");
-    settings.remove(name);   // удаляет всю группу
+    settings.remove(name);
     settings.endGroup();
 
-    loadConnections(); // обновить UI
+    loadConnections();
 }

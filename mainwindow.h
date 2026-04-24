@@ -38,6 +38,8 @@
 #include <QPrintPreviewDialog>
 #include <QStyleFactory>
 #include <QSettings>
+#include <QFileDialog>
+#include <QDir>
 #include "listforms.h"
 #include "dialog_auth.h"
 #include "highlightdelegate.h"
@@ -123,12 +125,14 @@ private slots:
     void on_filter_clicked();
     void onCustomContextMenu(const QPoint &pos);
     void setPage(QueryTab &tab, const QString primarykey);
-
+    void on_print_clicked();
     void on_pushButton_clear_clicked();
 
     void on_pushButton_form_output_clicked();
 
     void on_pushButton_to_html_clicked();
+
+    void on_actionSetting_app_triggered();
 
 protected:
 
@@ -140,12 +144,11 @@ private:
     QAction *refreshAction;
     QAction *loginAction;
     QAction *disconnectAction;
-
+    QTextDocument *doc;
     HighlightDelegate *m_highlightDelegate;
     QSqlDatabase currentDatabase() const;
     void setActive(QTreeWidgetItem *);
     QString activeDb;
-
     QVector<QueryTab> queryTabs;
     void dropTable(QTreeWidgetItem *item);
     void renameTable(QTreeWidgetItem *item);

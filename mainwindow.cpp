@@ -25,7 +25,18 @@ MainWindow::MainWindow(QWidget *parent)
     addDockWidget(Qt::BottomDockWidgetArea, dock);
 
     dock->setMinimumHeight(100);
-    QSettings settings;
+    QSettings settings("Exempl", "DBApp");
+    if (!settings.contains("template")) {
+        QVariantMap templateData;
+        QDir dir(QCoreApplication::applicationDirPath());
+        QString path = dir.filePath("templates/template.json");
+        QFileInfo info(path);
+        QString dirPath = info.absolutePath();
+        templateData["template path"] = dirPath;
+        templateData["template file"] = path;
+        qDebug() << dirPath <<path;
+        settings.setValue("template", templateData);
+    }
 
     ui->treeWidget->setObjectName(QLatin1String("tree"));
     ui->treeWidget->setHeaderLabels(QStringList(tr("database")));
@@ -54,6 +65,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->pushButton_insertRow,&QPushButton::clicked,this,&MainWindow::on_insert_clicked );
     connect(ui->pushButton_sendAction,&QPushButton::clicked,this,&MainWindow::on_filter_clicked );
     QTimer::singleShot(0, this, &MainWindow::on_login_connect);
+
+
 
 }
 
@@ -1478,7 +1491,7 @@ void MainWindow::on_pushButton_form_output_clicked()
             list->setItemWidget(item, widget);
             list->setFocusPolicy(Qt::NoFocus);
             list->setSelectionMode(QAbstractItemView::NoSelection);
-            connect(widget, &listforms::sizeChanged, [=]() {
+            connect(widget, &listforms::sizeChanged, list, [=]() {
                 item->setSizeHint(widget->sizeHint());
                 list->doItemsLayout();
             });
@@ -1667,7 +1680,8 @@ bool MainWindow::isView(QSqlDatabase db, const QString &name)
 
     return false;
 }
-
+//здесь надо сделать загрузку шаблонов и их парсинг. по идее как в жинже, в двойных квадратных скобках хранить данные.
+//для парсинга лучше всего использовать inja.(надо отдельно устанавливать)
 void MainWindow::on_pushButton_to_html_clicked()
 {
     QString html;
@@ -1699,9 +1713,33 @@ body {
     int currentIndex = ui->tabWidget->currentIndex();
     QWidget *widget = ui->tabWidget->widget(currentIndex);
     QueryTab *tab = getCurrentQueryTab(widget);
-
+    QWidget *form = new QWidget();
+    QVBoxLayout *vblayout = new QVBoxLayout(form);
+    QHBoxLayout *hblayout = new QHBoxLayout();
+    doc = new QTextDocument(form);
+    QTextBrowser *viewer = new QTextBrowser(form);
+    viewer->setDocument(doc);
+    QPushButton *print = new QPushButton("Print");
+    QPushButton *close = new QPushButton("Close");
+    hblayout->addWidget(print);
+    hblayout->addWidget(close);
+    vblayout->addWidget(viewer);
+    vblayout->addLayout(hblayout);
+    form->setAttribute(Qt::WA_DeleteOnClose);
     auto selected = tab->table->selectionModel()->selectedRows();
+    TemplateManager tmplMng;
+    QSettings set;
+    QSettings settings("Exempl", "DBApp");
+    if(!settings.contains("template"))
+    {
+        qWarning() << "No templates value";
+        return;
+    }
+    QVariantMap templateData = settings.value("template").toMap();
 
+    QString dirPath = templateData["template path"].toString();
+    QString file = templateData["template file"].toString();
+    QString templ = tmplMng.get_template(file,tab->table_name);
     for (const QModelIndex &index : std::as_const(selected))
     {
         QSqlRecord record = tab->model->record(index.row());
@@ -1711,30 +1749,66 @@ body {
             QString name = record.fieldName(i);
             QString value = record.value(i).toString().toHtmlEscaped();
 
-            html += "<tr>";
-            html += "<td class='label'>" + name + "</td>";
-            html += "<td>" + value + "</td>";
-            html += "</tr>";
+
         }
     }
 
     html += "</table></body></html>";
 
-    QTextDocument *doc = new QTextDocument();
+    connect(print,&QPushButton::clicked,this,&MainWindow::on_print_clicked);
+    connect(close, &QPushButton::clicked,form, &QWidget::close);
     doc->setHtml(html);
+    form->show();
 
-    QPrinter *printer = new QPrinter(QPrinter::HighResolution);
+}
 
-    QPrintPreviewDialog preview(printer, this);
+void MainWindow::on_print_clicked()
+{
+    QPrinter printer(QPrinter::HighResolution);
+    QPrintPreviewDialog preview(&printer, this);
 
     connect(&preview, &QPrintPreviewDialog::paintRequested,
-            this, [doc](QPrinter *p) {
+            this,[this] (QPrinter *p) {
                 doc->print(p);
             });
 
     preview.exec();
+}
 
+void MainWindow::on_actionSetting_app_triggered()
+{
+    QDialog dlg(this);
+    QVBoxLayout layout(&dlg);
+    QPushButton *btn_select = new QPushButton("Select template config");
+    QDialogButtonBox *btn = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+    auto dir = std::make_shared<QString>();
+    auto dirPath = std::make_shared<QString>();
+    QObject::connect(btn, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    QObject::connect(btn, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
 
+    layout.addWidget(btn_select);
+    layout.addWidget(btn);
+    connect(btn_select, &QPushButton::clicked, this, [this, dir, dirPath]()
+    {
+        *dir = QFileDialog::getOpenFileName(this,
+            "Select config",
+            QDir::homePath(),
+            "JSON files (*.json)");
+        if(dir->isEmpty())
+            return;
+        QFileInfo info(*dir);
+        *dirPath = info.absolutePath();
+    });
+
+    if((dlg.exec()==QDialog::Accepted) && (!dir->isEmpty()))
+    {
+        QSettings settings("Exempl", "DBApp");
+        QVariantMap templateData;
+        templateData["template path"] = *dirPath;
+        templateData["template file"] = *dir;
+        settings.setValue("template", templateData);
+        qDebug() << *dirPath << *dir;
+    }
 
 }
 
