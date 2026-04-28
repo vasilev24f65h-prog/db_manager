@@ -9,7 +9,9 @@ class listforms : public QWidget
     Q_OBJECT
 public:
     listforms(const QSqlRecord &record,QWidget *parent = nullptr);
-
+    QSqlRecord getRecord();
+private:
+    QSqlRecord m_record;
 signals:
     void sizeChanged();
 };

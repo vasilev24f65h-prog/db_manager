@@ -1,7 +1,7 @@
 
 #ifndef DIALOG_AUTH_H
 #define DIALOG_AUTH_H
-
+#include "credpass.h"
 #include <QDialog>
 #include <QString>
 #include <QMessageBox>
@@ -24,7 +24,7 @@ private slots:
     void onConnectionChanged(const QString &name);
     void on_pushButton_add_connection_clicked();
     void deleteConnection(const QString &name);
-
+    void updateConnection(const QString &name);
 signals:
     void credentialsEntered(const QString &username, const QString &password, const QString &namedb, const QString &host, const QString &connection);
 

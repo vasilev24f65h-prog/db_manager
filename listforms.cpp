@@ -11,10 +11,10 @@ listforms::listforms(const QSqlRecord &record, QWidget *parent)
     : QWidget(parent)
 {
     qDebug() << "record.count =" << record.count();
-
-    for (int i = 0; i < record.count(); ++i)
+    m_record = record;
+    for (int i = 0; i < m_record.count(); ++i)
     {
-        qDebug() << record.fieldName(i) << record.value(i);
+        qDebug() << m_record.fieldName(i) << m_record.value(i);
     }
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
@@ -26,10 +26,10 @@ listforms::listforms(const QSqlRecord &record, QWidget *parent)
     header->setMinimumHeight(30);
     QWidget *details = new QWidget;
     QFormLayout *form = new QFormLayout(details);
-    for (int i = 0; i < record.count(); ++i)
+    for (int i = 0; i < m_record.count(); ++i)
     {
-        QString name = record.fieldName(i);
-        QVariant value = record.value(i);
+        QString name = m_record.fieldName(i);
+        QVariant value = m_record.value(i);
         form->addRow(name, new QLabel(value.toString()));
     }
 
@@ -44,4 +44,9 @@ listforms::listforms(const QSqlRecord &record, QWidget *parent)
 
     mainLayout->addWidget(header);
     mainLayout->addWidget(details);
+}
+
+QSqlRecord listforms::getRecord()
+{
+    return m_record;
 }

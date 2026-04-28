@@ -5,7 +5,7 @@
 #include "qlineedit.h"
 #include "ui_mainwindow.h"
 #include <set>
-
+#include "recorddialog.h"
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -681,22 +681,22 @@ QueryTab * MainWindow::getCurrentQueryTab(QWidget *widget)
 }
 void MainWindow::on_delete_clicked()
 {
+    int currentIndex = ui->tabWidget->currentIndex();
+    QWidget *widget = ui->tabWidget->widget(currentIndex);
 
+    QueryTab *tab =getCurrentQueryTab(widget);
+
+    if(!tab)
+    {
+        QMessageBox::warning(this, "Ошибка", "Отсутсвует табличное представление.");
+        return;
+    }
     if (QMessageBox::question(this, "Удалить",
                               "Удалить запись(и)?") == QMessageBox::Yes)
     {
         QTableView *currentView = nullptr;
         QSqlQueryModel *queryModel = nullptr;
-        int currentIndex = ui->tabWidget->currentIndex();
-        QWidget *widget = ui->tabWidget->widget(currentIndex);
 
-        QueryTab *tab =getCurrentQueryTab(widget);
-
-        if(!tab)
-        {
-            QMessageBox::warning(this, "Ошибка", "Отсутсвует табличное представление.");
-            return;
-        }
         currentView =tab->table;
         queryModel = tab->model;
         QModelIndexList selectedIndexes = currentView->selectionModel()->selectedIndexes();
@@ -787,6 +787,16 @@ void MainWindow::on_delete_clicked()
 
 void MainWindow::on_update_clicked()
 {
+    int currentIndex = ui->tabWidget->currentIndex();
+    QWidget *widget = ui->tabWidget->widget(currentIndex);
+
+    QueryTab *tab =getCurrentQueryTab(widget);
+
+    if(!tab)
+    {
+        QMessageBox::warning(this, "Ошибка", "Отсутсвует табличное представление.");
+        return;
+    }
     QDialog dlg(this);
 
     QVBoxLayout *layout = new QVBoxLayout(&dlg);
@@ -814,16 +824,7 @@ void MainWindow::on_update_clicked()
     QString currentTableName;
     QString currentConnName;
 
-    int currentIndex = ui->tabWidget->currentIndex();
-    QWidget *widget = ui->tabWidget->widget(currentIndex);
 
-    QueryTab *tab =getCurrentQueryTab(widget);
-
-    if(!tab)
-    {
-        QMessageBox::warning(this, "Ошибка", "Отсутсвует табличное представление.");
-        return;
-    }
     currentView =tab->table;
     currentModel = tab->model;
     currentTableName = tab->table_name;
@@ -884,13 +885,13 @@ void MainWindow::on_update_clicked()
 
     QString error;
     if (UpdateExecutor::execute(db, tableModel, indexes, req, error, columns, rows)) {
-        tableModel->submitAll(); // применяем изменения
-        tableModel->select();    // обновляем view
+        tableModel->submitAll();
+        tableModel->select();
         currentModel->setQuery(currentModel->query().lastQuery(), db);
         QMessageBox::information(this, "Success", "All changes saved");
     } else {
         QMessageBox::critical(this, "Error!", error);
-        tableModel->revertAll(); // откатываем изменения при ошибке
+        tableModel->revertAll();
         tableModel->select();
         currentModel->setQuery(currentModel->query().lastQuery(), db);
     }
@@ -901,6 +902,16 @@ void MainWindow::on_update_clicked()
 // далее надо будет сосредоточиться на админском функционале
 void MainWindow::on_insert_clicked()
 {
+    int currentIndex = ui->tabWidget->currentIndex();
+    QWidget *widget = ui->tabWidget->widget(currentIndex);
+
+    QueryTab *tab =getCurrentQueryTab(widget);
+
+    if(!tab)
+    {
+        QMessageBox::warning(this, "Ошибка", "Отсутсвует табличное представление.");
+        return;
+    }
     QDialog dlg(this);
 
     QFormLayout *form = new QFormLayout(&dlg);
@@ -918,16 +929,7 @@ void MainWindow::on_insert_clicked()
     QVector<QWidget*> editors;
     QStringList fieldNames;
     QStringList placeholders;
-    int currentIndex = ui->tabWidget->currentIndex();
-    QWidget *widget = ui->tabWidget->widget(currentIndex);
 
-    QueryTab *tab =getCurrentQueryTab(widget);
-
-    if(!tab)
-    {
-        QMessageBox::warning(this, "Ошибка", "Отсутсвует табличное представление.");
-        return;
-    }
     currentView =tab->table;
     currentModel = tab->model;
     currentTableName = tab->table_name;
@@ -1403,160 +1405,203 @@ void MainWindow::on_pushButton_clear_clicked()
 //метрики производительности, например нагрузка на сервер и т.д., планировщик запросов и его вывод, обработку ошибок, расширить работу с таблицами, реализовать простой интерфейс для работы
 //с ролями
 
-void MainWindow::on_pushButton_form_output_clicked()
+void MainWindow::openSingleRecord(QueryTab *tab, int row, QSqlDatabase db)
+{
+    QSqlRecord record = tab->model->record(row);
+
+    RecordDialog dlg(record, tab,isView(db,tab->table_name), this);
+    if (dlg.exec() == QDialog::Accepted) {
+        buildSerchCond(db,tab,dlg);
+    }
+
+}
+void MainWindow::openRecordList(QueryTab *tab, const QModelIndexList &selected, QSqlDatabase db)
 {
     QDialog dlg(this);
-    dlg.setWindowTitle("Карточка записи");
-    dlg.resize(500, 400);
-
-    QVBoxLayout *mainLayout = new QVBoxLayout(&dlg);
-
-    QLabel *title = new QLabel("Карточка записи");
-    title->setStyleSheet("font-size: 18px; font-weight: bold;");
-    title->setAlignment(Qt::AlignCenter);
-
-    mainLayout->addWidget(title);
-
-
-    QScrollArea *scroll = new QScrollArea;
-    scroll->setWidgetResizable(true);
-
     QWidget *container = new QWidget;
+    QVBoxLayout *mainLayout = new QVBoxLayout(&dlg);
     QVBoxLayout *containerLayout = new QVBoxLayout(container);
+    QGroupBox *visitsGroup = new QGroupBox("Посещения");
+    QVBoxLayout *visitsLayout = new QVBoxLayout(visitsGroup);
+    QHBoxLayout *queryLine = new QHBoxLayout();
+    QLineEdit *query = new QLineEdit;
+    QListWidget *list = new QListWidget;
+    list->setContextMenuPolicy(Qt::CustomContextMenu);
+    queryLine->setStretch(0, 1);
+    query->setPlaceholderText("Find...");
+    queryLine->addWidget(query);
 
-    QGroupBox *group = new QGroupBox("Основная информация");
-    QRadioButton *insert = new QRadioButton("Вставка");
-    QRadioButton *update = new QRadioButton("Обновление");
-    QRadioButton *delete_btn = new QRadioButton("Удаление");
-    QFormLayout *form = new QFormLayout(group);
-    QButtonGroup *groupBtn = new QButtonGroup(&dlg);
-    groupBtn->addButton(insert);
-    groupBtn->addButton(update);
-    groupBtn->addButton(delete_btn);
-    QVector<QWidget*> editors;
-    QStringList fieldNames;
-    QStringList placeholders;
-    QStringList commit;
+    visitsLayout->addLayout(queryLine);
+    visitsLayout->addWidget(list);
 
+    containerLayout->addWidget(visitsGroup);
+    mainLayout->addWidget(container);
+    for (const QModelIndex &index : std::as_const(selected))
+    {
+        int row = index.row();
+
+        QSqlRecord record = tab->model->record(row);
+
+        qDebug() << "ROW =" << row;
+
+        QListWidgetItem *item = new QListWidgetItem;
+
+        listforms *widget = new listforms(record);
+        widget->adjustSize();
+        item->setSizeHint(widget->sizeHint());
+        list->setUniformItemSizes(false);
+        list->addItem(item);
+        list->setItemWidget(item, widget);
+        list->setFocusPolicy(Qt::NoFocus);
+        list->setSelectionMode(QAbstractItemView::NoSelection);
+        connect(widget, &listforms::sizeChanged, list, [=]() {
+            item->setSizeHint(widget->sizeHint());
+            list->doItemsLayout();
+        });
+    }
+    connect(list, &QListWidget::itemDoubleClicked,
+            this, [=](QListWidgetItem *item)
+            {
+                auto form = qobject_cast<listforms*>(list->itemWidget(item));
+                if (!form) return;
+
+                RecordDialog dlgRec(form->getRecord(), tab,isView(db,tab->table_name), this );
+                if (dlgRec.exec() == QDialog::Accepted) {
+                    buildSerchCond(db,tab,dlgRec);
+                }
+            });
+//надо будет сделать так чтобы список перестраивался, т.е. чтобы у нас удалялись/добавлялись ноды и внутри списка. То же касается обновления данных
+    dlg.exec();
+    qDebug() << "List count =" << list->count();
+}
+void MainWindow::buildSerchCond(QSqlDatabase db, QueryTab *tab, RecordDialog &dlgRec)
+{
+    QSqlRecord pk = db.primaryIndex(tab->table_name);
+    QStringList conditions;
+    QStringList pkFields;
+    QString query;
+    for (int i = 0; i < pk.count(); ++i)
+    {
+        QString name = pk.fieldName(i);
+        pkFields << name;
+        conditions << QString("%1 = :%1").arg(name);
+    }
+    int state = dlgRec.getRadioState();
+    if(state==Insert)
+    {
+        query = QString("INSERT INTO %1 (%2) VALUES (%3)")
+        .arg(tab->table_name,
+             dlgRec.join_fieldNames(),
+             dlgRec.join_placeholders());
+    }
+    else if(state==Update)
+    {
+        QString whereClause = conditions.join(" AND ");
+        query = QString("UPDATE %1 SET %2 WHERE %3")
+                    .arg(tab->table_name,
+                         dlgRec.join_commit(),
+                         whereClause);
+    }
+    else if(state==Delete)
+    {
+        QString whereClause = conditions.join(" AND ");
+        query = QString("DELETE FROM %1 WHERE %2")
+                    .arg(tab->table_name,
+                         whereClause);
+    }
+
+    QSqlQuery queryExec(db);
+    if (query.isEmpty()) {
+        QMessageBox::warning(&dlgRec, "Ошибка", "Выберите операцию");
+        return;
+    }
+    queryExec.prepare(query);
+
+    for (int i = 0; i < dlgRec.size_editors(); ++i)
+    {
+        QVariant value;
+
+        if (auto line = qobject_cast<QLineEdit*>(dlgRec.get_editors(i)))
+            value = line->text();
+
+        else if (auto spin = qobject_cast<QSpinBox*>(dlgRec.get_editors(i)))
+            value = spin->value();
+
+        else if (auto dspin = qobject_cast<QDoubleSpinBox*>(dlgRec.get_editors(i)))
+            value = dspin->value();
+
+        else if (auto date = qobject_cast<QDateEdit*>(dlgRec.get_editors(i)))
+            value = date->date();
+
+        else if (auto check = qobject_cast<QCheckBox*>(dlgRec.get_editors(i)))
+            value = check->isChecked();
+
+        if (!value.isValid() || value.isNull())
+            queryExec.bindValue(QString(":v%1").arg(i), QVariant());
+        else
+            queryExec.bindValue(QString(":v%1").arg(i), value);
+    }
+    for (int i = 0; i < pk.count(); ++i)
+    {
+        QString name = pk.fieldName(i);
+        queryExec.bindValue(":" + name, dlgRec.get_record_value(name));
+    }
+    db.transaction();
+    QString primaryKey = pkFields.join(",");
+    if (queryExec.exec()) {
+        db.commit();
+        tab->model->setQuery(tab->model->query().lastQuery(), db);
+        QMessageBox::information(this, "Успех", "Запись обновлена");
+
+    } else {
+        db.rollback();
+        QMessageBox::critical(this, "Ошибка", queryExec.lastError().text());
+        setPage(*tab, primaryKey);
+    }
+}
+void MainWindow::on_pushButton_form_output_clicked()
+{
     int currentIndex = ui->tabWidget->currentIndex();
+    if (currentIndex < 0) {
+        qWarning() << "No tabs open";
+        return;
+    }
     QWidget *widget = ui->tabWidget->widget(currentIndex);
+    if (!widget) {
+        qWarning() << "No widget";
+        return;
+    }
     QueryTab *tab = getCurrentQueryTab(widget);
+    if (!tab) {
+        qWarning() << "No QueryTab";
+        return;
+    }
+    if(!tab->model)
+    {
+        qWarning() << "No model selected";
+        return;
+    }
+
+    if(!tab->table)
+    {
+        qWarning() << "No row selected";
+        return;
+    }
     QSqlDatabase db = currentDatabase();
+    auto selected = tab->table->selectionModel()->selectedRows();
     QModelIndex index = tab->table->currentIndex();
     int row = index.row();
-    QSqlRecord record = tab->model->record(row);
-    qDebug() << "ROW =" << index.row();
 
-    for (int i = 0; i < record.count(); ++i)
-    {
-        qDebug() << record.fieldName(i) << record.value(i);
-    }
     int count = tab->table->selectionModel()->selectedRows().count();
-    auto selected = tab->table->selectionModel()->selectedRows();
+
     if(count >1)
     {
-        QGroupBox *visitsGroup = new QGroupBox("Посещения");
-        QVBoxLayout *visitsLayout = new QVBoxLayout(visitsGroup);
-        QHBoxLayout *queryLine = new QHBoxLayout();
-        QLineEdit *query = new QLineEdit;
-        QListWidget *list = new QListWidget;
-        QPushButton *send = new QPushButton("Send query");
-        QPushButton *clear = new QPushButton("x");
-        clear->setFixedWidth(20);
-        queryLine->setStretch(0, 1);
-        query->setPlaceholderText("Find...");
-        queryLine->addWidget(query);
-        queryLine->addWidget(send);
-        queryLine->addWidget(clear);
-
-        visitsLayout->addLayout(queryLine);
-        visitsLayout->addWidget(list);
-
-        containerLayout->addWidget(visitsGroup);
-        for (const QModelIndex &index : std::as_const(selected))
-        {
-            int row = index.row();
-
-            QSqlRecord record = tab->model->record(row);
-
-            qDebug() << "ROW =" << row;
-
-            QListWidgetItem *item = new QListWidgetItem;
-
-            listforms *widget = new listforms(record);
-            widget->adjustSize();
-            item->setSizeHint(widget->sizeHint());
-            list->setUniformItemSizes(false);
-            list->addItem(item);
-            list->setItemWidget(item, widget);
-            list->setFocusPolicy(Qt::NoFocus);
-            list->setSelectionMode(QAbstractItemView::NoSelection);
-            connect(widget, &listforms::sizeChanged, list, [=]() {
-                item->setSizeHint(widget->sizeHint());
-                list->doItemsLayout();
-            });
-        }
-        qDebug() << "List count =" << list->count();
+        openRecordList(tab,selected, db);
     }
     else {
-        for (int i = 0; i < record.count(); ++i)
-        {
-            QSqlField field = record.field(i);
-            QString fieldName = field.name();
-
-            QLabel *label = new QLabel(fieldName);
-            label->setStyleSheet("font-weight: bold;");
-
-            QWidget *editor = nullptr;
-            QVariant value = record.value(i);
-            if (field.type() == QVariant::Date) {
-                QDateEdit *dateEdit = new QDateEdit;
-                dateEdit->setCalendarPopup(true);
-                if (value.isValid())
-                    dateEdit->setDate(value.toDate());
-                editor = dateEdit;
-            }
-            else if (field.type() == QVariant::Int) {
-                QSpinBox *spin = new QSpinBox;
-                spin->setRange(INT_MIN, INT_MAX);
-                if (value.isValid())
-                    spin->setValue(value.toInt());
-
-                editor = spin;
-            }
-            else if (field.type() == QVariant::Double) {
-                QDoubleSpinBox *dspin = new QDoubleSpinBox;
-                dspin->setRange(-1e12, 1e12);
-                if (value.isValid())
-                    dspin->setValue(value.toDouble());
-                editor = dspin;
-            }
-            else if (field.type() == QVariant::Bool) {
-                QCheckBox *cbox = new QCheckBox;
-                if(value.isValid())
-                    cbox->setChecked(value.toBool());
-                editor = cbox;
-            }
-            else {
-                QLineEdit *lineEdit = new QLineEdit;
-
-                if (value.isValid())
-                    lineEdit->setText(value.toString());
-
-                lineEdit->setPlaceholderText("Введите " + field.name());
-
-                editor = lineEdit;
-
-            }
-
-            editors.push_back(editor);
-            fieldNames << fieldName;
-            placeholders << QString(":v%1").arg(i);
-            commit << fieldName + " = " + placeholders[i];
-            form->addRow(label, editor);
-        }
+        openSingleRecord(tab,row, db);
     }
-
+/*
     if (isView(db,tab->table_name)) {
         insert->setVisible(false);
         update->setVisible(false);
@@ -1564,108 +1609,8 @@ void MainWindow::on_pushButton_form_output_clicked()
         QMessageBox::warning(this, "Внимание", "Вы работаете с представлением. "
                                                "Оно будет представлено в режиме \"Только для чтения\"");
     }
-    containerLayout->addWidget(group);
-    scroll->setWidget(container);
-    mainLayout->addWidget(scroll);
+*/
 
-    QDialogButtonBox *btn = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
-
-    QObject::connect(btn, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-    QObject::connect(btn, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-    if(count <= 1)
-    {
-        mainLayout->addWidget(insert);
-        mainLayout->addWidget(update);
-        mainLayout->addWidget(delete_btn);
-        mainLayout->addWidget(btn);
-    }
-
-
-    if (count <= 1 &&dlg.exec() == QDialog::Accepted)
-    {
-        QSqlRecord pk = db.primaryIndex(tab->table_name);
-        QStringList conditions;
-        QString query;
-        for (int i = 0; i < pk.count(); ++i)
-        {
-            QString name = pk.fieldName(i);
-            conditions << QString("%1 = :%1").arg(name);
-        }
-        if(insert->isChecked())
-        {
-            query = QString("INSERT INTO %1 (%2) VALUES (%3)")
-            .arg(tab->table_name,
-                 fieldNames.join(", "),
-                 placeholders.join(", "));
-        }
-        else if(update->isChecked())
-        {
-            QString whereClause = conditions.join(" AND ");
-            query = QString("UPDATE %1 SET %2 WHERE %3")
-                        .arg(tab->table_name,
-                             commit.join(", "),
-                             whereClause);
-        }
-        else if(delete_btn->isChecked())
-        {
-            QString whereClause = conditions.join(" AND ");
-            query = QString("DELETE FROM %1 WHERE %2")
-                        .arg(tab->table_name,
-                             whereClause);
-        }
-
-        QSqlQuery insert(db);
-        if (query.isEmpty()) {
-            QMessageBox::warning(this, "Ошибка", "Выберите операцию");
-            return;
-        }
-        insert.prepare(query);
-
-        for (int i = 0; i < editors.size(); ++i)
-        {
-            QVariant value;
-
-            if (auto line = qobject_cast<QLineEdit*>(editors[i]))
-                value = line->text();
-
-            else if (auto spin = qobject_cast<QSpinBox*>(editors[i]))
-                value = spin->value();
-
-            else if (auto dspin = qobject_cast<QDoubleSpinBox*>(editors[i]))
-                value = dspin->value();
-
-            else if (auto date = qobject_cast<QDateEdit*>(editors[i]))
-                value = date->date();
-
-            else if (auto check = qobject_cast<QCheckBox*>(editors[i]))
-                value = check->isChecked();
-
-            if (!value.isValid() || value.isNull())
-                insert.bindValue(QString(":v%1").arg(i), QVariant());
-            else
-                insert.bindValue(QString(":v%1").arg(i), value);
-        }
-        for (int i = 0; i < pk.count(); ++i)
-        {
-            QString name = pk.fieldName(i);
-            insert.bindValue(":" + name, record.value(name));
-        }
-        db.transaction();
-
-        if (insert.exec()) {
-            db.commit();
-            tab->model->setQuery(tab->model->query().lastQuery(), db);
-            QMessageBox::information(this, "Успех", "Запись обновлена");
-
-        } else {
-            db.rollback();
-            QMessageBox::critical(this, "Ошибка", insert.lastError().text());
-        }
-    }
-    else if (count > 1)
-    {
-        dlg.exec();
-    }
 
 }
 
@@ -1684,35 +1629,59 @@ bool MainWindow::isView(QSqlDatabase db, const QString &name)
 //для парсинга лучше всего использовать inja.(надо отдельно устанавливать)
 void MainWindow::on_pushButton_to_html_clicked()
 {
-    QString html;
-    html += R"(
-<html>
-<head>
-<style>
-body {
-    font-family: Arial;
-    margin: 20px;
-}
-.table {
-    width: 100%;
-    border-collapse: collapse;
-}
-.table td {
-    padding: 6px 10px;
-    border-bottom: 1px solid #ccc;
-}
-.label {
-    font-weight: bold;
-    width: 30%;
-}
-</style>
-</head>
-<body>
-<table class="table">
-)";
+
     int currentIndex = ui->tabWidget->currentIndex();
+    if (currentIndex < 0) {
+        qWarning() << "No tabs open";
+        return;
+    }
     QWidget *widget = ui->tabWidget->widget(currentIndex);
+    if (!widget) {
+        qWarning() << "No widget";
+        return;
+    }
     QueryTab *tab = getCurrentQueryTab(widget);
+    if (!tab) {
+        qWarning() << "No QueryTab";
+        return;
+    }
+    if(!tab->model)
+    {
+        qWarning() << "No model selected";
+        return;
+    }
+
+    if(!tab->table)
+    {
+        qWarning() << "No row selected";
+        return;
+    }
+    auto selected = tab->table->selectionModel()->selectedRows();
+    if(selected.isEmpty())
+    {
+        qWarning() << "No selected row";
+        return;
+    }
+    QSettings settings("Exempl", "DBApp");
+    if(!settings.contains("template"))
+    {
+        qWarning() << "No templates value";
+        return;
+    }
+
+    TemplateManager tmplMng;
+    QVariantMap templateData = settings.value("template").toMap();
+
+    QString dirPath = templateData["template path"].toString();
+    QString file = templateData["template file"].toString();
+    QString templ = tmplMng.get_template(file,tab->table_name);
+
+    QFile templFile(templ);
+    if(!templFile.open(QIODevice::ReadOnly))
+    {
+        qWarning() << "Dont read template file!";
+        return;
+    }
     QWidget *form = new QWidget();
     QVBoxLayout *vblayout = new QVBoxLayout(form);
     QHBoxLayout *hblayout = new QHBoxLayout();
@@ -1726,38 +1695,39 @@ body {
     vblayout->addWidget(viewer);
     vblayout->addLayout(hblayout);
     form->setAttribute(Qt::WA_DeleteOnClose);
-    auto selected = tab->table->selectionModel()->selectedRows();
-    TemplateManager tmplMng;
-    QSettings set;
-    QSettings settings("Exempl", "DBApp");
-    if(!settings.contains("template"))
-    {
-        qWarning() << "No templates value";
-        return;
+
+    QStringList columns;
+    json data;
+    for (int i = 0; i < tab->model->columnCount(); ++i) {
+        columns << tab->model->headerData(i, Qt::Horizontal).toString();
     }
-    QVariantMap templateData = settings.value("template").toMap();
-
-    QString dirPath = templateData["template path"].toString();
-    QString file = templateData["template file"].toString();
-    QString templ = tmplMng.get_template(file,tab->table_name);
-    for (const QModelIndex &index : std::as_const(selected))
-    {
-        QSqlRecord record = tab->model->record(index.row());
-
-        for (int i = 0; i < record.count(); ++i)
-        {
-            QString name = record.fieldName(i);
-            QString value = record.value(i).toString().toHtmlEscaped();
-
-
+    for (const QModelIndex &index : std::as_const(selected)) {
+        json row;
+        int rowIndex = index.row();
+        for (int col = 0; col < tab->model->columnCount(); ++col) {
+            QVariant val = tab->model->data(tab->model->index(rowIndex, col));
+            switch (val.type()) {
+            case QVariant::Int:
+                row[columns[col].toStdString()] = val.toInt();
+                break;
+            case QVariant::Double:
+                row[columns[col].toStdString()] = val.toDouble();
+                break;
+            default:
+                row[columns[col].toStdString()] = val.toString().toStdString();
+            }
         }
+
+        data["rows"].push_back(row);
     }
 
-    html += "</table></body></html>";
+    std::string template_str = templFile.readAll().toStdString();
+    templFile.close();
+    std::string html = env.render(template_str, data);
 
     connect(print,&QPushButton::clicked,this,&MainWindow::on_print_clicked);
     connect(close, &QPushButton::clicked,form, &QWidget::close);
-    doc->setHtml(html);
+    doc->setHtml(html.c_str());
     form->show();
 
 }
@@ -1812,3 +1782,5 @@ void MainWindow::on_actionSetting_app_triggered()
 
 }
 
+// что еще сделать. Подумать как реализовать круды в listwidget. Вызов функций/хранимых процедур. Подумать над интерфейсом, заменить кнопки на тулбокс. Подумать как можно сделать mdi.
+// добавить работу с учетными записями, с триггерами, индексами, аудитом.

@@ -40,17 +40,27 @@
 #include <QSettings>
 #include <QFileDialog>
 #include <QDir>
-#include "listforms.h"
+
+#include "inja.hpp"
+#include "json.hpp"
+
 #include "dialog_auth.h"
+#include "listforms.h"
 #include "highlightdelegate.h"
 #include "logicupdate.h"
+#include "templatemanager.h"
 
+class RecordDialog;
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
 class MainWindow;
 }
 QT_END_NAMESPACE
+
+using json = nlohmann::json;
+using namespace inja;
+
 struct Condition {
     QString column;
     QString op;
@@ -150,6 +160,7 @@ private:
     void setActive(QTreeWidgetItem *);
     QString activeDb;
     QVector<QueryTab> queryTabs;
+    inja::Environment env;
     void dropTable(QTreeWidgetItem *item);
     void renameTable(QTreeWidgetItem *item);
     void showTriggers(QTreeWidgetItem *item);
@@ -157,6 +168,9 @@ private:
     void preparedParts(const QStringList &parts, QList<Condition> &conditions, QStringList &partsVal, const QRegularExpression re,
                        const QSet<QString> &allowedOps, const QSet<QString> allowedColumns, const QString &binding);
     void filter_list(const QString &condition, const QString &table_name, QString &sql,  QList<Condition> &conditions);
+    void openSingleRecord(QueryTab *tab, int row, QSqlDatabase db);
+    void openRecordList(QueryTab *tab, const QModelIndexList &selected, QSqlDatabase db);
+    void buildSerchCond(QSqlDatabase db, QueryTab *tab, RecordDialog &dlgRec);
    // void html_form();
 };
 #endif // MAINWINDOW_H
