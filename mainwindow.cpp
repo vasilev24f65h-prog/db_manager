@@ -242,6 +242,7 @@ void MainWindow::on_login_connect()
     dlg->setWindowFlag(Qt::WindowStaysOnTopHint);
 
     connect(dlg, &Dialog_auth::credentialsEntered, this, [=](const QString &u, const QString &p,const QString &db, const QString &host, const QString &conn ){
+        use_win = dlg->getAuthMetod();
         connection_name = conn;
         connection_addres = host;
         username = u;
@@ -262,11 +263,21 @@ int MainWindow::connect_to_database()
     static int counter_conn = 0;
     ++counter_conn;
     QString conn_name = QString("Connection_%1").arg(counter_conn);
-    QString connection = QString("Driver={ODBC Driver 17 for SQL Server};Server=%1;Database=%2;UID=%3;PWD=%4;")
+    QString connection;
+    if(use_win)
+    {
+        connection = QString("Driver={ODBC Driver 17 for SQL Server};Server=%1;Database=%2;Trusted_Connection=Yes;")
+                         .arg(connection_addres, namedb);
+    }
+    else
+    {
+        connection = QString("Driver={ODBC Driver 17 for SQL Server};Server=%1;Database=%2;UID=%3;PWD=%4;")
         .arg(connection_addres, namedb,username,password);
+    }
+
 
     qDebug() << QSqlDatabase::drivers();
-    QSqlDatabase db =  QSqlDatabase::addDatabase("QODBC3", conn_name);
+    QSqlDatabase db =  QSqlDatabase::addDatabase("QODBC", conn_name);
     qDebug() << conn_name;
     db.setDatabaseName(connection);
     if(db.open())

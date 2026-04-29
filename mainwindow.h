@@ -155,6 +155,7 @@ private:
     QAction *loginAction;
     QAction *disconnectAction;
     QTextDocument *doc;
+    bool use_win;
     HighlightDelegate *m_highlightDelegate;
     QSqlDatabase currentDatabase() const;
     void setActive(QTreeWidgetItem *);

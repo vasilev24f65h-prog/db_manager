@@ -8,7 +8,11 @@ Dialog_auth::Dialog_auth(QWidget *parent) :
     ui(new Ui::Dialog_auth)
 {
     ui->setupUi(this);
+    ui->comboBox_type_auth->addItem("Windows Authentication", WindowsAuth);
+    ui->comboBox_type_auth->addItem("SQL Authentication", SqlAuth);
+    connect(ui->comboBox_type_auth,  QOverload<int>::of(&QComboBox::currentIndexChanged), this,&Dialog_auth::onUseWindowsAuth);
     loadConnections();
+
     connect(ui->buttonBox_login, &QDialogButtonBox::accepted,this, &Dialog_auth::on_ButtonBox_accepted );
     connect(ui->buttonBox_login, &QDialogButtonBox::rejected,this, &Dialog_auth::reject );
     connect(ui->comboBox_connection_name, &QComboBox::currentTextChanged,
@@ -53,10 +57,34 @@ Dialog_auth::~Dialog_auth()
 {
     delete ui;
 }
+
+void Dialog_auth::onUseWindowsAuth(int index)
+{
+    AuthMode mode = static_cast<AuthMode>(
+        ui->comboBox_type_auth->currentData().toInt()
+        );
+    use_win = (mode == WindowsAuth);
+        ui->lineEdit_username->setEnabled(!use_win);
+        ui->lineEdit_pass->setEnabled(!use_win);
+        ui->checkBox_pass->setEnabled(!use_win);
+
+
+
+}
+
 void Dialog_auth::loadConnections()
 {
     QSettings settings("Exempl", "DBApp");
-
+    AuthMode mode = static_cast<AuthMode>(
+        ui->comboBox_type_auth->currentData().toInt()
+        );
+    use_win = (mode == WindowsAuth);
+    if(use_win)
+    {
+        ui->lineEdit_username->setEnabled(!use_win);
+        ui->lineEdit_pass->setEnabled(!use_win);
+        ui->checkBox_pass->setEnabled(!use_win);
+    }
     settings.beginGroup("connections");
     QStringList connections = settings.childGroups();
     settings.endGroup();
@@ -89,6 +117,7 @@ void Dialog_auth::onConnectionChanged(const QString &name)
     ui->lineEdit_host->setText(settings.value(key + "/server").toString());
     ui->lineEdit_db->setText(settings.value(key + "/database").toString());
     ui->lineEdit_username->setText(settings.value(key + "/user").toString());
+    ui->comboBox_type_auth->setCurrentIndex(settings.value(key+"/auth_type").toInt());
     std::wstring passkey = settings.value(key + "/credkey").toString().toStdWString();
     std::wstring pass;
     if(readCredential(passkey, pass))
@@ -103,24 +132,35 @@ void Dialog_auth::onConnectionChanged(const QString &name)
 }
 void Dialog_auth::on_ButtonBox_accepted()
 {
-    connection = ui->comboBox_connection_name->currentText();
-    username = ui->lineEdit_username->text();
-    password = ui->lineEdit_pass->text();
-    namedb = ui->lineEdit_db->text();
-    host = ui->lineEdit_host->text();
-
-    if (username.isEmpty() || password.isEmpty() ||
-        namedb.isEmpty() || host.isEmpty() || connection.isEmpty())
+    if(!use_win)
     {
-        QMessageBox::warning(this, "Ошибка", "Заполните все поля.");
-        return;
-    }
+        connection = ui->comboBox_connection_name->currentText();
+        username = ui->lineEdit_username->text();
+        password = ui->lineEdit_pass->text();
+        namedb = ui->lineEdit_db->text();
+        host = ui->lineEdit_host->text();
 
+        if (username.isEmpty() || password.isEmpty() ||
+            namedb.isEmpty() || host.isEmpty() || connection.isEmpty())
+        {
+            QMessageBox::warning(this, "Ошибка", "Заполните все поля.");
+            return;
+        }
+    }
+    else
+    {
+        connection = ui->comboBox_connection_name->currentText();
+        namedb = ui->lineEdit_db->text();
+        host = ui->lineEdit_host->text();
+    }
     emit credentialsEntered(username, password, namedb, host, connection);
     accept();
 }
 
-
+bool Dialog_auth::getAuthMetod()
+{
+    return use_win;
+}
 
 void Dialog_auth::on_pushButton_add_connection_clicked()
 {
@@ -152,10 +192,13 @@ void Dialog_auth::on_pushButton_add_connection_clicked()
     QSettings settings("Exempl", "DBApp");
 
     QString key = "connections/" + connection;
-
+    AuthMode mode = static_cast<AuthMode>(
+        ui->comboBox_type_auth->currentData().toInt()
+        );
     settings.setValue(key + "/server", ui->lineEdit_host->text());
     settings.setValue(key + "/database", ui->lineEdit_db->text());
     settings.setValue(key + "/user", ui->lineEdit_username->text());
+    settings.setValue(key+"/auth_type", mode);
     QString key_pass_qt = key + " for " + ui->lineEdit_username->text();
     std::wstring key_pass = key_pass_qt.toStdWString();
     if(ui->checkBox_pass->isChecked())
@@ -195,11 +238,13 @@ void Dialog_auth::updateConnection(const QString &name)
     QSettings settings("Exempl", "DBApp");
 
     QString key = "connections/" + name;
-
+    AuthMode mode = static_cast<AuthMode>(
+        ui->comboBox_type_auth->currentData().toInt()
+        );
     settings.setValue(key + "/server", ui->lineEdit_host->text());
     settings.setValue(key + "/database", ui->lineEdit_db->text());
     settings.setValue(key + "/user", ui->lineEdit_username->text());
-
+    settings.setValue(key+"/auth_type", mode);
     if(ui->checkBox_pass->isChecked())
     {
         QString key_pass_qt = key + " for " + ui->lineEdit_username->text();
