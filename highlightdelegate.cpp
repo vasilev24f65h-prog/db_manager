@@ -1,7 +1,6 @@
 
 #include "highlightdelegate.h"
 #include "qapplication.h"
-#include "qdebug.h"
 #include <QPainter>
 
 HighlightDelegate::HighlightDelegate(QObject *parent)
@@ -24,7 +23,6 @@ void HighlightDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
     // Получаем данные ячейки
     QString cellText = index.data(Qt::DisplayRole).toString();
     bool isSelected = option.state & QStyle::State_Selected;
-    bool hasFocus = option.state & QStyle::State_HasFocus;
     bool hasSearchMatch = !m_searchText.isEmpty() &&
                           cellText.contains(m_searchText, Qt::CaseInsensitive);
     // Настройка фона
